@@ -1,0 +1,164 @@
+name: Build Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-latest
+
+    env:
+      DEFAULT_RELEASE_TAG: v0.1.0
+
+    steps:
+      - name: Resolve release metadata
+        id: release
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            tag="${DEFAULT_RELEASE_TAG}"
+          fi
+
+          version="${tag#v}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Test
+        run: dotnet test OwnDesk.sln /p:EnableWindowsTargeting=true
+
+      - name: Publish server
+        run: >
+          dotnet publish src/OwnDesk.Server/OwnDesk.Server.csproj
+          -c Release
+          -r linux-x64
+          --self-contained true
+          -o artifacts/publish/OwnDesk.Server-linux-x64
+          /p:Version=${{ steps.release.outputs.version }}
+
+      - name: Publish Windows client
+        run: >
+          dotnet publish src/OwnDesk.Client/OwnDesk.Client.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -o artifacts/publish/OwnDesk.Client-win-x64
+          /p:EnableWindowsTargeting=true
+          /p:Version=${{ steps.release.outputs.version }}
+
+      - name: Package assets
+        shell: bash
+        run: |
+          cd artifacts/publish
+          zip -r "../OwnDesk.Server-linux-x64-${{ steps.release.outputs.tag }}.zip" OwnDesk.Server-linux-x64
+          zip -r "../OwnDesk.Client-win-x64-${{ steps.release.outputs.tag }}.zip" OwnDesk.Client-win-x64
+          cd ..
+          sha256sum "OwnDesk.Server-linux-x64-${{ steps.release.outputs.tag }}.zip" \
+                    "OwnDesk.Client-win-x64-${{ steps.release.outputs.tag }}.zip" > SHA256SUMS.txt
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > artifacts/RELEASE_NOTES.md <<'EOF'
+          # OwnDesk ${{ steps.release.outputs.tag }}
+
+          Packaged release for OwnDesk.
+
+          ## Assets
+
+          - `OwnDesk.Server-linux-x64-${{ steps.release.outputs.tag }}.zip`
+            - Self-contained Linux x64 server build.
+            - Entry point: `OwnDesk.Server`
+          - `OwnDesk.Client-win-x64-${{ steps.release.outputs.tag }}.zip`
+            - Self-contained Windows x64 integrated client.
+            - Entry point: `OwnDesk.Client.exe`
+            - Includes local Agent + embedded Viewer.
+          - `SHA256SUMS.txt`
+            - SHA256 checksums for the release archives.
+
+          ## Server Quick Start
+
+          ```bash
+          unzip OwnDesk.Server-linux-x64-${{ steps.release.outputs.tag }}.zip
+          cd OwnDesk.Server-linux-x64
+          chmod +x OwnDesk.Server
+          OWNDESK_ACCOUNT=me \
+          OWNDESK_TOKEN=replace-with-a-long-random-token \
+          ASPNETCORE_URLS=http://0.0.0.0:5080 \
+          ./OwnDesk.Server
+          ```
+
+          For public use, put the server behind HTTPS/WSS reverse proxy or a load balancer.
+
+          ## Windows Client Quick Start
+
+          Unzip `OwnDesk.Client-win-x64-${{ steps.release.outputs.tag }}.zip`, then run:
+
+          ```text
+          OwnDesk.Client-win-x64\OwnDesk.Client.exe
+          ```
+
+          Fill in:
+
+          ```text
+          Server: https://YOUR_DOMAIN
+          Account: me
+          Token: your server token
+          ```
+
+          Click `Start Agent` to make the Windows machine appear in the online device list.
+
+          ## Notes
+
+          - The Windows client still requires Microsoft Edge WebView2 Runtime if it is not already installed.
+          - The server has no built-in default token; set `OWNDESK_TOKEN` explicitly.
+          - Current WebRTC media path is experimental; JPEG/WebSocket relay remains available as fallback.
+          EOF
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+          title="OwnDesk ${tag}"
+          assets=(
+            "artifacts/OwnDesk.Server-linux-x64-${tag}.zip"
+            "artifacts/OwnDesk.Client-win-x64-${tag}.zip"
+            "artifacts/SHA256SUMS.txt"
+          )
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${assets[@]}" --clobber
+          else
+            gh release create "${tag}" "${assets[@]}" \
+              --title "${title}" \
+              --notes-file artifacts/RELEASE_NOTES.md
+          fi
