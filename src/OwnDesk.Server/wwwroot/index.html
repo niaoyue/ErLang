@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OwnDesk</title>
+  <link rel="stylesheet" href="/app.css?v=20260427-mobile-mouse-keys">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <div class="brand">OwnDesk</div>
+        <div class="subtle">自用远程控制台</div>
+      </div>
+      <div class="status-pill" id="serverStatus">未登录</div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <form class="panel" id="loginForm" autocomplete="off">
+          <label>
+            <span>账号</span>
+            <input id="accountInput" name="account" value="demo" required>
+          </label>
+          <label>
+            <span>令牌</span>
+            <input id="tokenInput" name="token" type="password" placeholder="访问令牌" required>
+          </label>
+          <button class="primary" type="submit">登录</button>
+        </form>
+
+        <div class="panel device-panel">
+          <div class="panel-title">
+            <span>在线设备</span>
+            <div class="button-row">
+              <button type="button" class="icon-button" id="refreshButton" title="刷新设备">↻</button>
+              <button type="button" class="icon-button" id="localDebugButton" title="本机调试模式" disabled>◎</button>
+              <button type="button" class="icon-button" id="pointerLockButton" title="锁定鼠标" disabled>⌖</button>
+              <button type="button" class="icon-button" id="disconnectButton" title="断开连接" disabled>×</button>
+            </div>
+          </div>
+          <div class="device-list" id="deviceList">
+            <div class="empty-list">登录后显示设备</div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace" id="workspace">
+        <div class="screen-bar">
+          <div>
+            <div class="screen-title" id="activeDevice">未连接</div>
+            <div class="subtle" id="frameStats">0 帧</div>
+          </div>
+          <div class="screen-actions">
+            <button type="button" class="icon-button" id="fullscreenButton" title="全屏" disabled>⛶</button>
+            <button type="button" class="icon-button" id="zoomOutButton" title="缩小" disabled>−</button>
+            <button type="button" class="icon-button" id="fitButton" title="适配屏幕" disabled>⤢</button>
+            <button type="button" class="icon-button" id="zoomInButton" title="放大" disabled>+</button>
+            <button type="button" class="icon-button" id="panButton" title="拖动画面" disabled>↔</button>
+            <button type="button" class="icon-button mobile-only-control" id="scrollButton" title="远端滚轮" disabled>⇅</button>
+            <button type="button" class="icon-button mobile-only-control" id="keyboardButton" title="手机键盘" disabled>⌨</button>
+            <select class="quality-select" id="qualitySelect" title="画质档位" disabled>
+              <option value="smooth">流畅</option>
+              <option value="balanced" selected>均衡</option>
+              <option value="quality">清晰</option>
+              <option value="ultra">超清</option>
+            </select>
+            <button type="button" class="icon-button" id="webrtcButton" title="WebRTC 视频" disabled>◉</button>
+            <div class="status-pill offline" id="connectionStatus">离线</div>
+          </div>
+        </div>
+        <button type="button" class="fullscreen-toolbar-toggle" id="toolbarToggleButton" title="显示工具栏" aria-label="显示工具栏">☰</button>
+
+        <div class="screen-shell" id="screenShell">
+          <div class="screen-content" id="screenContent">
+            <canvas id="screenCanvas" tabindex="0"></canvas>
+            <video id="webrtcVideo" autoplay playsinline muted></video>
+            <div class="remote-cursor" id="remoteCursor"></div>
+          </div>
+          <div class="empty-screen" id="emptyScreen">选择一台在线设备</div>
+        </div>
+
+        <div class="keyboard-panel" id="keyboardPanel" hidden>
+          <input
+            id="keyboardInput"
+            class="keyboard-input"
+            type="text"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="none"
+            spellcheck="false"
+            enterkeyhint="enter"
+            placeholder="输入到远程设备"
+            aria-label="Remote keyboard">
+          <button type="button" class="mobile-only-control" data-pointer-click="right">右键</button>
+          <button type="button" class="mobile-only-control" data-modifier-key-code="17" data-key="Control" aria-pressed="false">Ctrl</button>
+          <button type="button" class="mobile-only-control" data-modifier-key-code="16" data-key="Shift" aria-pressed="false">Shift</button>
+          <button type="button" class="mobile-only-control" data-modifier-key-code="18" data-key="Alt" aria-pressed="false">Alt</button>
+          <button type="button" class="mobile-only-control" data-modifier-key-code="91" data-key="Meta" aria-pressed="false">Win</button>
+          <button type="button" data-key-code="27" data-key="Escape">Esc</button>
+          <button type="button" data-key-code="9" data-key="Tab">Tab</button>
+          <button type="button" data-key-code="8" data-key="Backspace">⌫</button>
+          <button type="button" data-key-code="13" data-key="Enter">↵</button>
+          <button type="button" class="mobile-only-control" data-scroll="-480">滚上</button>
+          <button type="button" class="mobile-only-control" data-scroll="480">滚下</button>
+          <button type="button" data-key-code="37" data-key="ArrowLeft">←</button>
+          <button type="button" data-key-code="38" data-key="ArrowUp">↑</button>
+          <button type="button" data-key-code="40" data-key="ArrowDown">↓</button>
+          <button type="button" data-key-code="39" data-key="ArrowRight">→</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js?v=20260427-mobile-mouse-keys"></script>
+</body>
+</html>

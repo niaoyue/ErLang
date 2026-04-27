@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+TestResults/
+artifacts/
+*.log
+*_github
+*_github.pub
+*.pem
+*.key
+id_rsa*
+id_ed25519*
