@@ -19,14 +19,14 @@ internal sealed class WebSocketRelay
     }
 
     public async Task HandleAgentAsync(
-        string account,
+        string organizationId,
         string deviceId,
         string deviceName,
         WebSocket socket,
         CancellationToken cancellationToken)
     {
-        var session = _registry.RegisterAgent(account, deviceId, deviceName, socket);
-        _logger.LogInformation("Agent connected: {Account}/{DeviceId} ({DeviceName})", account, deviceId, deviceName);
+        var session = _registry.RegisterAgent(organizationId, deviceId, deviceName, socket);
+        _logger.LogInformation("Agent connected: {OrganizationId}/{DeviceId} ({DeviceName})", organizationId, deviceId, deviceName);
 
         try
         {
@@ -80,30 +80,30 @@ internal sealed class WebSocketRelay
         }
         catch (WebSocketException ex)
         {
-            _logger.LogInformation(ex, "Agent websocket closed: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogInformation(ex, "Agent websocket closed: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Agent sent invalid JSON: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogWarning(ex, "Agent sent invalid JSON: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Agent websocket message rejected: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogWarning(ex, "Agent websocket message rejected: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
         finally
         {
             _registry.UnregisterAgent(session);
-            _logger.LogInformation("Agent disconnected: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogInformation("Agent disconnected: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
     }
 
     public async Task HandleViewerAsync(
-        string account,
+        string organizationId,
         string deviceId,
         WebSocket socket,
         CancellationToken cancellationToken)
     {
-        var viewer = _registry.AddViewer(account, deviceId, socket);
+        var viewer = _registry.AddViewer(organizationId, deviceId, socket);
         if (viewer is null)
         {
             var safeSocket = new SafeWebSocket(socket);
@@ -114,11 +114,11 @@ internal sealed class WebSocketRelay
             return;
         }
 
-        _logger.LogInformation("Viewer connected: {Account}/{DeviceId}/{ViewerId}", account, deviceId, viewer.Id);
+        _logger.LogInformation("Viewer connected: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
 
         try
         {
-            if (_registry.TryGetDevice(account, deviceId, out var device) && device is not null)
+            if (_registry.TryGetDevice(organizationId, deviceId, out var device) && device is not null)
             {
                 await viewer.Connection.SendTextAsync(
                     JsonSerializer.Serialize(new
@@ -145,7 +145,7 @@ internal sealed class WebSocketRelay
                 var text = WebSocketMessages.AsText(message);
                 if (TryGetMessageType(text, out var type) && IsViewerToAgentMessage(type))
                 {
-                    await _registry.SendToAgentAsync(account, deviceId, text, cancellationToken);
+                    await _registry.SendToAgentAsync(organizationId, deviceId, text, cancellationToken);
                 }
             }
         }
@@ -154,20 +154,20 @@ internal sealed class WebSocketRelay
         }
         catch (WebSocketException ex)
         {
-            _logger.LogInformation(ex, "Viewer websocket closed: {Account}/{DeviceId}/{ViewerId}", account, deviceId, viewer.Id);
+            _logger.LogInformation(ex, "Viewer websocket closed: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Viewer sent invalid JSON: {Account}/{DeviceId}/{ViewerId}", account, deviceId, viewer.Id);
+            _logger.LogWarning(ex, "Viewer sent invalid JSON: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Viewer websocket message rejected: {Account}/{DeviceId}/{ViewerId}", account, deviceId, viewer.Id);
+            _logger.LogWarning(ex, "Viewer websocket message rejected: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
         }
         finally
         {
             _registry.RemoveViewer(viewer);
-            _logger.LogInformation("Viewer disconnected: {Account}/{DeviceId}/{ViewerId}", account, deviceId, viewer.Id);
+            _logger.LogInformation("Viewer disconnected: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
         }
     }
 

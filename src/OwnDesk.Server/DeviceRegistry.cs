@@ -8,16 +8,15 @@ internal sealed class DeviceRegistry
 {
     private readonly ConcurrentDictionary<DeviceKey, DeviceSession> _devices = new();
 
-    public DeviceSession RegisterAgent(string account, string deviceId, string deviceName, WebSocket socket)
+    public DeviceSession RegisterAgent(string organizationId, string deviceId, string deviceName, WebSocket socket)
     {
         var now = DateTimeOffset.UtcNow;
         var session = new DeviceSession(
-            account,
+            organizationId,
             deviceId,
             new SafeWebSocket(socket),
             new DeviceInfoDto
             {
-                Account = account,
                 DeviceId = deviceId,
                 DeviceName = deviceName,
                 ConnectedAtUtc = now,
@@ -39,19 +38,19 @@ internal sealed class DeviceRegistry
         return session;
     }
 
-    public IReadOnlyList<DeviceInfoDto> ListDevices(string account)
+    public IReadOnlyList<DeviceInfoDto> ListDevices(string organizationId)
     {
         return _devices
-            .Where(pair => pair.Key.Account == account)
+            .Where(pair => pair.Key.OrganizationId == organizationId)
             .Select(pair => pair.Value.Snapshot)
             .OrderBy(device => device.DeviceName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(device => device.DeviceId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
-    public bool TryGetDevice(string account, string deviceId, out DeviceInfoDto? device)
+    public bool TryGetDevice(string organizationId, string deviceId, out DeviceInfoDto? device)
     {
-        if (_devices.TryGetValue(new DeviceKey(account, deviceId), out var session))
+        if (_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
         {
             device = session.Snapshot;
             return true;
@@ -102,9 +101,9 @@ internal sealed class DeviceRegistry
         session.Abort();
     }
 
-    public ViewerSession? AddViewer(string account, string deviceId, WebSocket socket)
+    public ViewerSession? AddViewer(string organizationId, string deviceId, WebSocket socket)
     {
-        if (!_devices.TryGetValue(new DeviceKey(account, deviceId), out var session))
+        if (!_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
         {
             return null;
         }
@@ -169,9 +168,9 @@ internal sealed class DeviceRegistry
         }
     }
 
-    public async Task<bool> SendToAgentAsync(string account, string deviceId, string text, CancellationToken cancellationToken)
+    public async Task<bool> SendToAgentAsync(string organizationId, string deviceId, string text, CancellationToken cancellationToken)
     {
-        if (!_devices.TryGetValue(new DeviceKey(account, deviceId), out var session) || !session.Agent.IsOpen)
+        if (!_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session) || !session.Agent.IsOpen)
         {
             return false;
         }
@@ -186,26 +185,26 @@ internal sealed class DeviceRegistry
     }
 }
 
-internal readonly record struct DeviceKey(string Account, string DeviceId);
+internal readonly record struct DeviceKey(string OrganizationId, string DeviceId);
 
 internal sealed class DeviceSession
 {
     private readonly object _snapshotLock = new();
     private DeviceInfoDto _snapshot;
 
-    public DeviceSession(string account, string deviceId, SafeWebSocket agent, DeviceInfoDto snapshot)
+    public DeviceSession(string organizationId, string deviceId, SafeWebSocket agent, DeviceInfoDto snapshot)
     {
-        Account = account;
+        OrganizationId = organizationId;
         DeviceId = deviceId;
         Agent = agent;
         _snapshot = snapshot;
     }
 
-    public string Account { get; }
+    public string OrganizationId { get; }
 
     public string DeviceId { get; }
 
-    public DeviceKey Key => new(Account, DeviceId);
+    public DeviceKey Key => new(OrganizationId, DeviceId);
 
     public SafeWebSocket Agent { get; }
 

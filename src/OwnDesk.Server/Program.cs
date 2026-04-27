@@ -18,11 +18,11 @@ if (args.Length == 0 && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVari
     builder.WebHost.UseUrls(LocalhostUrl);
 }
 
-var account = Environment.GetEnvironmentVariable("OWNDESK_ACCOUNT")
-              ?? builder.Configuration["OwnDesk:Account"]
-              ?? "demo";
 var token = Environment.GetEnvironmentVariable("OWNDESK_TOKEN")
             ?? builder.Configuration["OwnDesk:Token"];
+var authStorePath = Environment.GetEnvironmentVariable("OWNDESK_AUTH_STORE")
+                    ?? builder.Configuration["OwnDesk:AuthStorePath"]
+                    ?? Path.Combine(AppContext.BaseDirectory, "owndesk-auth.json");
 
 if (string.IsNullOrWhiteSpace(token))
 {
@@ -32,7 +32,7 @@ if (string.IsNullOrWhiteSpace(token))
 // Keep framework request logging terse; WebSocket auth tokens are never placed in URLs.
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 
-builder.Services.AddSingleton(new SingleAccountAuthenticator(account, token));
+builder.Services.AddSingleton(new OrganizationAuthenticator(token, authStorePath));
 builder.Services.AddSingleton<DeviceRegistry>();
 builder.Services.AddSingleton<WebSocketRelay>();
 builder.Services.AddSingleton<WebRtcSignalingRelay>();
@@ -54,7 +54,69 @@ app.MapGet("/api/health", () => Results.Ok(new
     nowUtc = DateTimeOffset.UtcNow
 }));
 
-app.MapPost("/api/devices", async (HttpContext context, SingleAccountAuthenticator authenticator, DeviceRegistry registry) =>
+app.MapPost("/api/register", async (HttpContext context, OrganizationAuthenticator authenticator) =>
+{
+    RegisterMemberRequest? request;
+    try
+    {
+        request = await JsonSerializer.DeserializeAsync<RegisterMemberRequest>(context.Request.Body, JsonDefaults.Options, context.RequestAborted);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new ErrorMessage { Message = "Invalid request body." });
+    }
+
+    if (request is null)
+    {
+        return Results.BadRequest(new ErrorMessage { Message = "Invalid request body." });
+    }
+
+    try
+    {
+        return Results.Ok(authenticator.Register(request));
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.Unauthorized();
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new ErrorMessage { Message = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Conflict(new ErrorMessage { Message = ex.Message });
+    }
+});
+
+app.MapPost("/api/login", async (HttpContext context, OrganizationAuthenticator authenticator) =>
+{
+    LoginMemberRequest? request;
+    try
+    {
+        request = await JsonSerializer.DeserializeAsync<LoginMemberRequest>(context.Request.Body, JsonDefaults.Options, context.RequestAborted);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new ErrorMessage { Message = "Invalid request body." });
+    }
+
+    if (request is null)
+    {
+        return Results.BadRequest(new ErrorMessage { Message = "Invalid request body." });
+    }
+
+    try
+    {
+        return Results.Ok(authenticator.Login(request));
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return Results.Unauthorized();
+    }
+});
+
+app.MapPost("/api/devices", async (HttpContext context, OrganizationAuthenticator authenticator, DeviceRegistry registry) =>
 {
     AuthMessage? auth;
     try
@@ -66,12 +128,13 @@ app.MapPost("/api/devices", async (HttpContext context, SingleAccountAuthenticat
         return Results.BadRequest();
     }
 
-    if (auth is null || auth.Type != OwnDeskMessageTypes.Auth || !authenticator.IsAuthorized(auth.Account, auth.Token))
+    var member = auth is null ? null : authenticator.Authenticate(auth);
+    if (member is null)
     {
         return Results.Unauthorized();
     }
 
-    return Results.Ok(registry.ListDevices(auth.Account));
+    return Results.Ok(registry.ListDevices(member.OrganizationId));
 });
 
 app.Map("/ws/agent", async context =>
@@ -83,16 +146,16 @@ app.Map("/ws/agent", async context =>
     }
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    var authenticator = context.RequestServices.GetRequiredService<SingleAccountAuthenticator>();
+    var authenticator = context.RequestServices.GetRequiredService<OrganizationAuthenticator>();
     var auth = await ReceiveAuthAsync(socket, authenticator, context.RequestAborted);
-    if (auth is null || string.IsNullOrWhiteSpace(auth.DeviceId) || string.IsNullOrWhiteSpace(auth.DeviceName))
+    if (auth is null || string.IsNullOrWhiteSpace(auth.Message.DeviceId) || string.IsNullOrWhiteSpace(auth.Message.DeviceName))
     {
         socket.Abort();
         return;
     }
 
     var relay = context.RequestServices.GetRequiredService<WebSocketRelay>();
-    await relay.HandleAgentAsync(auth.Account, auth.DeviceId, auth.DeviceName, socket, context.RequestAborted);
+    await relay.HandleAgentAsync(auth.Member.OrganizationId, auth.Message.DeviceId, auth.Message.DeviceName, socket, context.RequestAborted);
 });
 
 app.Map("/ws/viewer", async context =>
@@ -111,7 +174,7 @@ app.Map("/ws/viewer", async context =>
     }
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    var authenticator = context.RequestServices.GetRequiredService<SingleAccountAuthenticator>();
+    var authenticator = context.RequestServices.GetRequiredService<OrganizationAuthenticator>();
     var auth = await ReceiveAuthAsync(socket, authenticator, context.RequestAborted);
     if (auth is null)
     {
@@ -120,7 +183,7 @@ app.Map("/ws/viewer", async context =>
     }
 
     var relay = context.RequestServices.GetRequiredService<WebSocketRelay>();
-    await relay.HandleViewerAsync(auth.Account, deviceId, socket, context.RequestAborted);
+    await relay.HandleViewerAsync(auth.Member.OrganizationId, deviceId, socket, context.RequestAborted);
 });
 
 app.Map("/ws/webrtc/agent", async context =>
@@ -139,7 +202,7 @@ app.Map("/ws/webrtc/agent", async context =>
     }
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    var authenticator = context.RequestServices.GetRequiredService<SingleAccountAuthenticator>();
+    var authenticator = context.RequestServices.GetRequiredService<OrganizationAuthenticator>();
     var auth = await ReceiveAuthAsync(socket, authenticator, context.RequestAborted);
     if (auth is null)
     {
@@ -148,7 +211,7 @@ app.Map("/ws/webrtc/agent", async context =>
     }
 
     var relay = context.RequestServices.GetRequiredService<WebRtcSignalingRelay>();
-    await relay.HandleAgentAsync(auth.Account, deviceId, socket, context.RequestAborted);
+    await relay.HandleAgentAsync(auth.Member.OrganizationId, deviceId, socket, context.RequestAborted);
 });
 
 app.Map("/ws/webrtc/viewer", async context =>
@@ -168,7 +231,7 @@ app.Map("/ws/webrtc/viewer", async context =>
     }
 
     using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    var authenticator = context.RequestServices.GetRequiredService<SingleAccountAuthenticator>();
+    var authenticator = context.RequestServices.GetRequiredService<OrganizationAuthenticator>();
     var auth = await ReceiveAuthAsync(socket, authenticator, context.RequestAborted);
     if (auth is null)
     {
@@ -177,7 +240,7 @@ app.Map("/ws/webrtc/viewer", async context =>
     }
 
     var relay = context.RequestServices.GetRequiredService<WebRtcSignalingRelay>();
-    await relay.HandleViewerAsync(auth.Account, deviceId, sessionId, socket, context.RequestAborted);
+    await relay.HandleViewerAsync(auth.Member.OrganizationId, deviceId, sessionId, socket, context.RequestAborted);
 });
 
 app.Run();
@@ -187,9 +250,9 @@ static string RequiredQuery(HttpContext context, string key)
     return context.Request.Query[key].ToString().Trim();
 }
 
-static async Task<AuthMessage?> ReceiveAuthAsync(
+static async Task<AuthorizedAuth?> ReceiveAuthAsync(
     WebSocket socket,
-    SingleAccountAuthenticator authenticator,
+    OrganizationAuthenticator authenticator,
     CancellationToken cancellationToken)
 {
     const int maxAuthBytes = 4096;
@@ -206,8 +269,8 @@ static async Task<AuthMessage?> ReceiveAuthAsync(
         }
 
         var auth = JsonSerializer.Deserialize<AuthMessage>(WebSocketMessages.AsText(message), JsonDefaults.Options);
-        if (auth is null || auth.Type != OwnDeskMessageTypes.Auth ||
-            !authenticator.IsAuthorized(auth.Account, auth.Token))
+        var member = auth is null ? null : authenticator.Authenticate(auth);
+        if (auth is null || member is null)
         {
             await new SafeWebSocket(socket).SendTextAsync(
                 JsonSerializer.Serialize(new ErrorMessage { Message = "Unauthorized." }, JsonDefaults.Options),
@@ -215,7 +278,7 @@ static async Task<AuthMessage?> ReceiveAuthAsync(
             return null;
         }
 
-        return auth;
+        return new AuthorizedAuth(auth, member);
     }
     catch (JsonException)
     {
@@ -251,3 +314,5 @@ static string ResolveWebRootPath()
 
     return Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
 }
+
+internal sealed record AuthorizedAuth(AuthMessage Message, AuthenticatedMember Member);

@@ -6,8 +6,6 @@ public sealed record DeviceInfoDto
 
     public required string DeviceName { get; init; }
 
-    public required string Account { get; init; }
-
     public required DateTimeOffset ConnectedAtUtc { get; init; }
 
     public required DateTimeOffset LastSeenUtc { get; init; }
@@ -18,4 +16,3 @@ public sealed record DeviceInfoDto
 
     public required bool Online { get; init; }
 }
-

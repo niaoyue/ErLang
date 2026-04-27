@@ -23,10 +23,9 @@ tests/
 
 ## 运行 Server
 
-开发默认账号是 `demo`，但令牌没有内置默认值，启动 Server 前必须显式设置 `OWNDESK_TOKEN` 或 `OwnDesk:Token`。
+Server 使用组织 Token 识别一个部署/组织。Token 没有内置默认值，启动前必须显式设置 `OWNDESK_TOKEN` 或 `OwnDesk:Token`。成员账号和密码通过网页或一体化 Client 注册/登录，密码哈希默认保存到 `owndesk-auth.json`；也可以用 `OWNDESK_AUTH_STORE` 指定保存路径。
 
 ```powershell
-$env:OWNDESK_ACCOUNT = "me"
 $env:OWNDESK_TOKEN = "replace-with-a-long-random-token"
 dotnet run --project src\OwnDesk.Server\OwnDesk.Server.csproj
 ```
@@ -37,12 +36,14 @@ dotnet run --project src\OwnDesk.Server\OwnDesk.Server.csproj
 http://127.0.0.1:5080
 ```
 
+首次使用时，在登录区切换到“注册”，填写组织 Token、成员账号和密码。之后成员用账号密码登录；Agent 使用同一组组织 Token、成员账号和密码上线设备。
+
 ## 运行 Windows Agent
 
 在要被控制的 Windows 设备上运行：
 
 ```powershell
-dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server http://127.0.0.1:5080 --account me --token replace-with-a-long-random-token --device-id pc-1 --device-name pc-1 --fps 5 --quality 55 --max-width 1280 --max-height 720
+dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server http://127.0.0.1:5080 --account me --token replace-with-a-long-random-token --password replace-with-member-password --device-id pc-1 --device-name pc-1 --fps 5 --quality 55 --max-width 1280 --max-height 720
 ```
 
 参数说明：
@@ -50,9 +51,10 @@ dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server http://1
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--server` | `http://127.0.0.1:5080` | Server 地址；跨机器访问应使用 HTTPS/WSS 反向代理地址 |
-| `--account` | `demo` | 单账号名 |
-| `--token` | 无默认值 | 访问令牌，必须显式提供 |
-| `--device-id` | 当前机器名 | 账号下唯一设备 ID |
+| `--account` | 无默认值 | 成员账号，必须显式提供 |
+| `--token` | 无默认值 | 组织 Token，必须显式提供 |
+| `--password` | 无默认值 | 成员密码，必须显式提供 |
+| `--device-id` | 当前机器名 | 组织下唯一设备 ID |
 | `--device-name` | 当前机器名 | 界面显示名称 |
 | `--fps` | `5` | 采集帧率，范围 1-15 |
 | `--quality` | `55` | JPEG 质量，范围 20-90 |
@@ -64,7 +66,7 @@ dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server http://1
 | `--webrtc-bitrate-kbps` | `1200` | WebRTC VP8 目标码率，范围 150-20000 |
 | `--capture-backend` | `auto` | 屏幕采集后端：`auto`、`gdi`、`dxgi`、`wgc`。当前 DXGI/WGC 会降级到 GDI |
 
-也可以用环境变量：`OWNDESK_SERVER`、`OWNDESK_ACCOUNT`、`OWNDESK_TOKEN`、`OWNDESK_DEVICE_ID`、`OWNDESK_DEVICE_NAME`、`OWNDESK_FPS`、`OWNDESK_JPEG_QUALITY`、`OWNDESK_MAX_WIDTH`、`OWNDESK_MAX_HEIGHT`、`OWNDESK_QUALITY_PROFILE`、`OWNDESK_WEBRTC`、`OWNDESK_WEBRTC_CODEC`、`OWNDESK_WEBRTC_BITRATE_KBPS`、`OWNDESK_CAPTURE_BACKEND`。
+也可以用环境变量：`OWNDESK_SERVER`、`OWNDESK_ACCOUNT`、`OWNDESK_TOKEN`、`OWNDESK_PASSWORD`、`OWNDESK_DEVICE_ID`、`OWNDESK_DEVICE_NAME`、`OWNDESK_FPS`、`OWNDESK_JPEG_QUALITY`、`OWNDESK_MAX_WIDTH`、`OWNDESK_MAX_HEIGHT`、`OWNDESK_QUALITY_PROFILE`、`OWNDESK_WEBRTC`、`OWNDESK_WEBRTC_CODEC`、`OWNDESK_WEBRTC_BITRATE_KBPS`、`OWNDESK_CAPTURE_BACKEND`。
 
 ## 运行 Windows 一体化 Client
 
@@ -85,13 +87,13 @@ dotnet run --project src\OwnDesk.Client\OwnDesk.Client.csproj
 
 | 字段 | 示例 | 说明 |
 | --- | --- | --- |
-| `Server` | `https://owndesk.zhonglehd.cn` | 云端 Server 地址 |
-| `Account` | `me` | 与 Server 的 `OWNDESK_ACCOUNT` 一致 |
-| `Token` | `replace-with-a-long-random-token` | 与 Server 的 `OWNDESK_TOKEN` 一致 |
-| `Device ID` | `pc-1` | 账号下唯一设备 ID，默认当前机器名 |
-| `Device Name` | `pc-1` | 界面显示名称，默认当前机器名 |
+| `组织 Token` | `replace-with-a-long-random-token` | 与 Server 的 `OWNDESK_TOKEN` 一致，用于识别组织 |
+| `成员账号` | `me` | 已注册的成员账号 |
+| `成员密码` | `replace-with-member-password` | 成员登录密码 |
+| `设备 ID` | `pc-1` | 组织下唯一设备 ID，默认当前机器名 |
+| `设备名称` | `pc-1` | 界面显示名称，默认当前机器名 |
 
-点 `Start Agent` 后，这台 Windows 电脑会注册为在线设备；右侧内嵌 WebView2 Viewer 会打开 Server 控制台并自动填入账号令牌。也可以勾选 `Start local agent on launch`，下次启动 Client 时自动上线本机。
+Server 地址放在 `连接设置` 中，避免在主要 UI 上暴露具体部署地址。点 `上线本机` 后，这台 Windows 电脑会注册为在线设备；右侧内嵌 WebView2 Viewer 会打开 Server 控制台并自动填入组织 Token、账号和密码。也可以勾选 `启动客户端时自动上线本机`，下次启动 Client 时自动上线本机。
 
 配置保存到：
 
@@ -99,7 +101,7 @@ dotnet run --project src\OwnDesk.Client\OwnDesk.Client.csproj
 %APPDATA%\OwnDesk\client-settings.json
 ```
 
-这个文件会保存访问令牌，应只放在自有受信任的 Windows 账号下使用。
+这个文件会保存组织 Token 和成员密码，应只放在自有受信任的 Windows 账号下使用。
 
 发布 Windows x64 客户端：
 
@@ -178,13 +180,13 @@ JPEG bytes: 原始 JPEG 二进制
 也可以用启动参数指定默认档位：
 
 ```powershell
-dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --quality-profile quality
+dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --password replace-with-member-password --quality-profile quality
 ```
 
 仍然可以用独立参数覆盖默认值，例如更省流量：
 
 ```powershell
-dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --max-width 960 --max-height 540 --quality 45 --fps 3
+dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --password replace-with-member-password --max-width 960 --max-height 540 --quality 45 --fps 3
 ```
 
 坐标控制会按发送画面的尺寸映射回真实屏幕尺寸，所以降低分辨率不会导致点击位置整体偏移。
@@ -215,7 +217,7 @@ Browser Viewer WebRTC <-> Server 信令中转 <-> Windows Agent WebRTC peer
 如果需要临时关闭 WebRTC 实验通道：
 
 ```powershell
-dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --webrtc false
+dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --password replace-with-member-password --webrtc false
 ```
 
 ## 连接架构路线

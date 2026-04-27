@@ -10,19 +10,56 @@ namespace OwnDesk.Tests;
 public sealed class ProtocolTests
 {
     [Fact]
-    public void AuthAcceptsExactAccountAndToken()
+    public void AuthRegistersAndAuthenticatesMember()
     {
-        var auth = new SingleAccountAuthenticator("demo", "secret");
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var auth = new OrganizationAuthenticator("org-secret", storePath);
 
-        Assert.True(auth.IsAuthorized("demo", "secret"));
+        var session = auth.Register(new RegisterMemberRequest
+        {
+            OrganizationToken = "org-secret",
+            Username = "demo",
+            Password = "password-123"
+        });
+
+        var passwordMember = auth.Authenticate(new AuthMessage
+        {
+            Account = "demo",
+            Token = "org-secret",
+            Password = "password-123"
+        });
+        var sessionMember = auth.Authenticate(new AuthMessage
+        {
+            Account = "demo",
+            Token = "org-secret",
+            SessionToken = session.SessionToken
+        });
+
+        Assert.NotNull(passwordMember);
+        Assert.NotNull(sessionMember);
+        Assert.Equal(passwordMember.OrganizationId, sessionMember.OrganizationId);
     }
 
     [Fact]
-    public void AuthRejectsWrongToken()
+    public void AuthRejectsWrongOrganizationToken()
     {
-        var auth = new SingleAccountAuthenticator("demo", "secret");
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var auth = new OrganizationAuthenticator("org-secret", storePath);
+        auth.Register(new RegisterMemberRequest
+        {
+            OrganizationToken = "org-secret",
+            Username = "demo",
+            Password = "password-123"
+        });
 
-        Assert.False(auth.IsAuthorized("demo", "bad"));
+        var member = auth.Authenticate(new AuthMessage
+        {
+            Account = "demo",
+            Token = "bad",
+            Password = "password-123"
+        });
+
+        Assert.Null(member);
     }
 
     [Fact]
@@ -52,6 +89,8 @@ public sealed class ProtocolTests
         {
             Account = "demo",
             Token = "secret",
+            Password = "password-123",
+            SessionToken = "viewer-session",
             DeviceId = "pc-1",
             DeviceName = "PC 1",
             SessionId = "session-1"
@@ -64,6 +103,8 @@ public sealed class ProtocolTests
         Assert.Equal(OwnDeskMessageTypes.Auth, parsed.Type);
         Assert.Equal("demo", parsed.Account);
         Assert.Equal("secret", parsed.Token);
+        Assert.Equal("password-123", parsed.Password);
+        Assert.Equal("viewer-session", parsed.SessionToken);
         Assert.Equal("pc-1", parsed.DeviceId);
         Assert.Equal("PC 1", parsed.DeviceName);
         Assert.Equal("session-1", parsed.SessionId);

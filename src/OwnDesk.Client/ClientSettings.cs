@@ -9,11 +9,13 @@ internal sealed record ClientSettings
         WriteIndented = true
     };
 
-    public string Server { get; init; } = "https://owndesk.zhonglehd.cn";
+    public string Server { get; init; } = string.Empty;
 
-    public string Account { get; init; } = "me";
+    public string Account { get; init; } = string.Empty;
 
     public string Token { get; init; } = string.Empty;
+
+    public string Password { get; init; } = string.Empty;
 
     public string DeviceId { get; init; } = Environment.MachineName;
 
@@ -66,6 +68,7 @@ internal sealed record ClientSettings
             Server = NormalizeServer(Server),
             Account = Account.Trim(),
             Token = Token.Trim(),
+            Password = Password,
             DeviceId = string.IsNullOrWhiteSpace(DeviceId) ? Environment.MachineName : DeviceId.Trim(),
             DeviceName = string.IsNullOrWhiteSpace(DeviceName) ? Environment.MachineName : DeviceName.Trim()
         };
@@ -78,6 +81,7 @@ internal sealed record ClientSettings
             Server = ReadEnvironment("OWNDESK_SERVER", settings.Server),
             Account = ReadEnvironment("OWNDESK_ACCOUNT", settings.Account),
             Token = ReadEnvironment("OWNDESK_TOKEN", settings.Token),
+            Password = ReadEnvironment("OWNDESK_PASSWORD", settings.Password),
             DeviceId = ReadEnvironment("OWNDESK_DEVICE_ID", settings.DeviceId),
             DeviceName = ReadEnvironment("OWNDESK_DEVICE_NAME", settings.DeviceName)
         };
@@ -85,7 +89,8 @@ internal sealed record ClientSettings
 
     private static string NormalizeServer(string server)
     {
-        return server.Trim().TrimEnd('/');
+        server = server.Trim().TrimEnd('/');
+        return string.IsNullOrWhiteSpace(server) ? "https://YOUR_OWNDESK_DOMAIN" : server;
     }
 
     private static string ReadEnvironment(string name, string fallback)

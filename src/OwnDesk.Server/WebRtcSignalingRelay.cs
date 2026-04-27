@@ -20,12 +20,12 @@ internal sealed class WebRtcSignalingRelay
     }
 
     public async Task HandleAgentAsync(
-        string account,
+        string organizationId,
         string deviceId,
         WebSocket socket,
         CancellationToken cancellationToken)
     {
-        var session = new WebRtcAgentSession(account, deviceId, new SafeWebSocket(socket));
+        var session = new WebRtcAgentSession(organizationId, deviceId, new SafeWebSocket(socket));
         _agents.AddOrUpdate(
             session.Key,
             session,
@@ -35,7 +35,7 @@ internal sealed class WebRtcSignalingRelay
                 return session;
             });
 
-        _logger.LogInformation("WebRTC agent signaling connected: {Account}/{DeviceId}", account, deviceId);
+        _logger.LogInformation("WebRTC agent signaling connected: {OrganizationId}/{DeviceId}", organizationId, deviceId);
 
         try
         {
@@ -60,11 +60,11 @@ internal sealed class WebRtcSignalingRelay
         }
         catch (WebSocketException ex)
         {
-            _logger.LogInformation(ex, "WebRTC agent signaling closed: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogInformation(ex, "WebRTC agent signaling closed: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "WebRTC agent sent invalid JSON: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogWarning(ex, "WebRTC agent sent invalid JSON: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
         finally
         {
@@ -74,18 +74,18 @@ internal sealed class WebRtcSignalingRelay
             }
 
             await CloseViewersForAgentAsync(session, cancellationToken);
-            _logger.LogInformation("WebRTC agent signaling disconnected: {Account}/{DeviceId}", account, deviceId);
+            _logger.LogInformation("WebRTC agent signaling disconnected: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
     }
 
     public async Task HandleViewerAsync(
-        string account,
+        string organizationId,
         string deviceId,
         string sessionId,
         WebSocket socket,
         CancellationToken cancellationToken)
     {
-        var key = new DeviceKey(account, deviceId);
+        var key = new DeviceKey(organizationId, deviceId);
         if (!_agents.TryGetValue(key, out var agent) || !agent.Connection.IsOpen)
         {
             var safeSocket = new SafeWebSocket(socket);
@@ -105,13 +105,13 @@ internal sealed class WebRtcSignalingRelay
         }
 
         var viewer = new WebRtcViewerSession(
-            account,
+            organizationId,
             deviceId,
             sessionId,
             new SafeWebSocket(socket));
 
         _viewers[viewer.Key] = viewer;
-        _logger.LogInformation("WebRTC viewer signaling connected: {Account}/{DeviceId}/{SessionId}", account, deviceId, sessionId);
+        _logger.LogInformation("WebRTC viewer signaling connected: {OrganizationId}/{DeviceId}/{SessionId}", organizationId, deviceId, sessionId);
 
         try
         {
@@ -136,17 +136,17 @@ internal sealed class WebRtcSignalingRelay
         }
         catch (WebSocketException ex)
         {
-            _logger.LogInformation(ex, "WebRTC viewer signaling closed: {Account}/{DeviceId}/{SessionId}", account, deviceId, sessionId);
+            _logger.LogInformation(ex, "WebRTC viewer signaling closed: {OrganizationId}/{DeviceId}/{SessionId}", organizationId, deviceId, sessionId);
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "WebRTC viewer sent invalid JSON: {Account}/{DeviceId}/{SessionId}", account, deviceId, sessionId);
+            _logger.LogWarning(ex, "WebRTC viewer sent invalid JSON: {OrganizationId}/{DeviceId}/{SessionId}", organizationId, deviceId, sessionId);
         }
         finally
         {
             _viewers.TryRemove(viewer.Key, out _);
             await NotifyViewerClosedAsync(viewer, cancellationToken);
-            _logger.LogInformation("WebRTC viewer signaling disconnected: {Account}/{DeviceId}/{SessionId}", account, deviceId, sessionId);
+            _logger.LogInformation("WebRTC viewer signaling disconnected: {OrganizationId}/{DeviceId}/{SessionId}", organizationId, deviceId, sessionId);
         }
     }
 
@@ -164,8 +164,8 @@ internal sealed class WebRtcSignalingRelay
         if (signal.Type == OwnDeskMessageTypes.WebRtcCapabilities)
         {
             _logger.LogInformation(
-                "WebRTC capabilities from {Account}/{DeviceId}: mode={Mode} requested={RequestedCodec} selected={SelectedCodec} codecs={Codecs} hardware={HardwareEncoding} capture={CaptureBackend} requestedCapture={RequestedCaptureBackend} selectedCapture={SelectedCaptureBackend} encoder={EncoderName} target={TargetKbps}kbps notes={Notes}",
-                agent.Account,
+                "WebRTC capabilities from {OrganizationId}/{DeviceId}: mode={Mode} requested={RequestedCodec} selected={SelectedCodec} codecs={Codecs} hardware={HardwareEncoding} capture={CaptureBackend} requestedCapture={RequestedCaptureBackend} selectedCapture={SelectedCaptureBackend} encoder={EncoderName} target={TargetKbps}kbps notes={Notes}",
+                agent.OrganizationId,
                 agent.DeviceId,
                 signal.Mode,
                 signal.RequestedCodec,
@@ -186,7 +186,7 @@ internal sealed class WebRtcSignalingRelay
             return;
         }
 
-        var viewerKey = new WebRtcSessionKey(agent.Account, signal.SessionId);
+        var viewerKey = new WebRtcSessionKey(agent.OrganizationId, signal.SessionId);
         if (_viewers.TryGetValue(viewerKey, out var viewer) &&
             viewer.DeviceId == agent.DeviceId &&
             viewer.Connection.IsOpen)
@@ -200,7 +200,7 @@ internal sealed class WebRtcSignalingRelay
         string text,
         CancellationToken cancellationToken)
     {
-        if (!_agents.TryGetValue(new DeviceKey(viewer.Account, viewer.DeviceId), out var agent))
+        if (!_agents.TryGetValue(new DeviceKey(viewer.OrganizationId, viewer.DeviceId), out var agent))
         {
             await SendViewerErrorAsync(viewer, "WebRTC agent signaling is offline.", cancellationToken);
             return;
@@ -225,7 +225,7 @@ internal sealed class WebRtcSignalingRelay
 
     private async Task NotifyViewerClosedAsync(WebRtcViewerSession viewer, CancellationToken cancellationToken)
     {
-        if (!_agents.TryGetValue(new DeviceKey(viewer.Account, viewer.DeviceId), out var agent) || !agent.Connection.IsOpen)
+        if (!_agents.TryGetValue(new DeviceKey(viewer.OrganizationId, viewer.DeviceId), out var agent) || !agent.Connection.IsOpen)
         {
             return;
         }
@@ -255,7 +255,7 @@ internal sealed class WebRtcSignalingRelay
     {
         foreach (var viewer in _viewers.Values.ToArray())
         {
-            if (viewer.Account != agent.Account || viewer.DeviceId != agent.DeviceId)
+            if (viewer.OrganizationId != agent.OrganizationId || viewer.DeviceId != agent.DeviceId)
             {
                 continue;
             }
@@ -295,14 +295,14 @@ internal sealed class WebRtcSignalingRelay
     }
 }
 
-internal readonly record struct WebRtcSessionKey(string Account, string SessionId);
+internal readonly record struct WebRtcSessionKey(string OrganizationId, string SessionId);
 
-internal sealed record WebRtcAgentSession(string Account, string DeviceId, SafeWebSocket Connection)
+internal sealed record WebRtcAgentSession(string OrganizationId, string DeviceId, SafeWebSocket Connection)
 {
-    public DeviceKey Key => new(Account, DeviceId);
+    public DeviceKey Key => new(OrganizationId, DeviceId);
 }
 
-internal sealed record WebRtcViewerSession(string Account, string DeviceId, string SessionId, SafeWebSocket Connection)
+internal sealed record WebRtcViewerSession(string OrganizationId, string DeviceId, string SessionId, SafeWebSocket Connection)
 {
-    public WebRtcSessionKey Key => new(Account, SessionId);
+    public WebRtcSessionKey Key => new(OrganizationId, SessionId);
 }

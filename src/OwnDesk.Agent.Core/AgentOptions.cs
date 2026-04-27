@@ -4,6 +4,7 @@ internal sealed record AgentOptions(
     string Server,
     string Account,
     string Token,
+    string Password,
     string DeviceId,
     string DeviceName,
     int FramesPerSecond,
@@ -21,11 +22,22 @@ internal sealed record AgentOptions(
         var switches = ParseSwitches(args);
 
         var server = Read("server", "OWNDESK_SERVER", "http://127.0.0.1:5080");
-        var account = Read("account", "OWNDESK_ACCOUNT", "demo");
+        var account = Read("account", "OWNDESK_ACCOUNT", string.Empty);
+        if (string.IsNullOrWhiteSpace(account))
+        {
+            throw new ArgumentException("OwnDesk member account is required. Pass --account or set OWNDESK_ACCOUNT.");
+        }
+
         var token = Read("token", "OWNDESK_TOKEN", string.Empty);
         if (string.IsNullOrWhiteSpace(token))
         {
-            throw new ArgumentException("OwnDesk token is required. Pass --token or set OWNDESK_TOKEN.");
+            throw new ArgumentException("OwnDesk organization token is required. Pass --token or set OWNDESK_TOKEN.");
+        }
+
+        var password = Read("password", "OWNDESK_PASSWORD", string.Empty);
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            throw new ArgumentException("OwnDesk member password is required. Pass --password or set OWNDESK_PASSWORD.");
         }
         var deviceId = Read("device-id", "OWNDESK_DEVICE_ID", Environment.MachineName);
         var deviceName = Read("device-name", "OWNDESK_DEVICE_NAME", Environment.MachineName);
@@ -56,6 +68,7 @@ internal sealed record AgentOptions(
             server,
             account,
             token,
+            password,
             deviceId,
             deviceName,
             fps,

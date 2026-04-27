@@ -191,6 +191,7 @@ internal sealed class RemoteAgent
                 {
                     Account = _options.Account,
                     Token = _options.Token,
+                    Password = _options.Password,
                     DeviceId = _options.DeviceId,
                     DeviceName = _options.DeviceName
                 },

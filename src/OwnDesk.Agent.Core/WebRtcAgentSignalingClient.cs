@@ -242,6 +242,7 @@ internal sealed class WebRtcAgentSignalingClient
                 {
                     Account = _options.Account,
                     Token = _options.Token,
+                    Password = _options.Password,
                     DeviceId = _options.DeviceId
                 },
                 JsonDefaults.Options),

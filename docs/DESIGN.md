@@ -33,18 +33,20 @@ docs/
 | --- | --- | --- |
 | `/` | GET | 重定向到 `/index.html` |
 | `/api/health` | GET | 健康检查 |
-| `/api/devices` | POST | 请求体携带认证信息，返回当前账号在线设备 |
+| `/api/register` | POST | 使用组织 Token 创建成员账号并返回会话 |
+| `/api/login` | POST | 使用组织 Token、成员账号和密码登录并返回会话 |
+| `/api/devices` | POST | 请求体携带认证信息，返回当前组织在线设备 |
 
 ### 3.2 WebSocket
 
 | Endpoint | 连接方 | 参数 | 作用 |
 | --- | --- | --- | --- |
-| `/ws/agent` | Agent | WebSocket 首条 `auth` 消息携带账号、令牌、设备信息 | 注册设备，上传帧，接收输入 |
-| `/ws/viewer` | Browser | Query 只携带 `deviceId`，WebSocket 首条 `auth` 消息携带账号和令牌 | 连接设备，接收帧，发送输入 |
+| `/ws/agent` | Agent | WebSocket 首条 `auth` 消息携带组织 Token、成员账号、成员密码和设备信息 | 注册设备，上传帧，接收输入 |
+| `/ws/viewer` | Browser | Query 只携带 `deviceId`，WebSocket 首条 `auth` 消息携带组织 Token、成员账号和会话令牌 | 连接设备，接收帧，发送输入 |
 
 ### 3.3 连接管理
 
-1. `DeviceRegistry` 用账号和设备 ID 作为 key。
+1. `DeviceRegistry` 用组织 ID 和设备 ID 作为 key。
 2. 每台设备只有一个 Agent 连接，重复连接会替换旧连接。
 3. 每台设备可以有多个 Viewer。
 4. 每个 WebSocket 发送端有独立 `SemaphoreSlim`，避免并发发送破坏帧序。
@@ -103,7 +105,7 @@ docs/
 
 ## 5. Agent 设计
 
-1. `AgentOptions` 从命令行或环境变量读取 Server、账号、令牌、设备 ID、FPS、JPEG 质量和最大发送分辨率。
+1. `AgentOptions` 从命令行或环境变量读取 Server、组织 Token、成员账号、成员密码、设备 ID、FPS、JPEG 质量和最大发送分辨率。
 2. `ScreenCaptureService` 使用 Windows Desktop API 采集主屏幕，按最大宽高缩放，并压缩 JPEG。
 3. `RemoteAgent` 维护 WebSocket，断线后延迟重连。
 4. `InputController` 使用 Windows `user32.dll` 注入鼠标和键盘事件。

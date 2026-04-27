@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OwnDesk</title>
-  <link rel="stylesheet" href="/app.css?v=20260427-mobile-mouse-keys">
+  <link rel="stylesheet" href="/app.css?v=20260427-org-members">
 </head>
 <body>
   <div class="shell">
@@ -18,16 +18,29 @@
 
     <main class="layout">
       <aside class="sidebar">
-        <form class="panel" id="loginForm" autocomplete="off">
+        <form class="panel auth-panel" id="loginForm" autocomplete="off">
+          <div class="auth-tabs" role="tablist" aria-label="认证模式">
+            <button type="button" class="auth-tab active" id="loginModeButton" data-auth-mode="login">登录</button>
+            <button type="button" class="auth-tab" id="registerModeButton" data-auth-mode="register">注册</button>
+          </div>
           <label>
-            <span>账号</span>
-            <input id="accountInput" name="account" value="demo" required>
+            <span>组织 Token</span>
+            <input id="organizationTokenInput" name="organizationToken" type="password" placeholder="组织管理员提供的 Token" required>
           </label>
           <label>
-            <span>令牌</span>
-            <input id="tokenInput" name="token" type="password" placeholder="访问令牌" required>
+            <span>成员账号</span>
+            <input id="accountInput" name="account" autocomplete="username" placeholder="成员账号" required>
           </label>
-          <button class="primary" type="submit">登录</button>
+          <label>
+            <span>密码</span>
+            <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="成员密码" required>
+          </label>
+          <label id="confirmPasswordLabel" hidden>
+            <span>确认密码</span>
+            <input id="confirmPasswordInput" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码">
+          </label>
+          <button class="primary" id="authSubmitButton" type="submit">登录</button>
+          <div class="auth-hint" id="authHint">登录后显示本组织的在线设备。</div>
         </form>
 
         <div class="panel device-panel">
@@ -113,6 +126,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=20260427-mobile-mouse-keys"></script>
+  <script src="/app.js?v=20260427-org-members"></script>
 </body>
 </html>

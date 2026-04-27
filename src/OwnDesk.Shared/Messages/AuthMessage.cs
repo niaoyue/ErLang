@@ -8,6 +8,10 @@ public sealed record AuthMessage
 
     public required string Token { get; init; }
 
+    public string? Password { get; init; }
+
+    public string? SessionToken { get; init; }
+
     public string? DeviceId { get; init; }
 
     public string? DeviceName { get; init; }

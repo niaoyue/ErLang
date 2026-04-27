@@ -2,7 +2,7 @@
 
 ## 1. 背景
 
-目标是做一个自用远程控制软件，体验方向参考向日葵、ToDesk：在不同设备上登录同一个账号后，可以看到自己的在线设备，并从浏览器发起远程控制。
+目标是做一个自用远程控制软件，体验方向参考向日葵、ToDesk：同一个组织下的成员登录后，可以看到本组织在线设备，并从浏览器发起远程控制。
 
 本项目只覆盖合法、自有设备、显式登录、显式运行 Agent 的场景。不做隐藏驻留、绕过系统授权、静默控制、权限提升、凭据窃取、杀软规避等能力。
 
@@ -13,18 +13,18 @@
 | 项目 | 地址 | 可借鉴点 | 本项目取舍 |
 | --- | --- | --- | --- |
 | RustDesk | https://github.com/rustdesk/rustdesk | 开源远程桌面，自托管 rendezvous/relay 思路成熟 | 借鉴“自托管中继 + Agent + Viewer”形态，不在 MVP 阶段实现 P2P/NAT 打洞 |
-| MeshCentral | https://github.com/Ylianst/MeshCentral | Web 管理端、设备 Agent、远程桌面/文件/终端一体化 | 借鉴“账号下设备列表 + 浏览器控制台”，MVP 只做远程桌面 |
+| MeshCentral | https://github.com/Ylianst/MeshCentral | Web 管理端、设备 Agent、远程桌面/文件/终端一体化 | 借鉴“组织下设备列表 + 浏览器控制台”，MVP 只做远程桌面 |
 | Remotely | https://github.com/immense/Remotely | Server/Agent 架构，浏览器远控体验接近需求 | 借鉴 Signal/WebSocket 中继模式，避免早期引入复杂部署 |
 | Apache Guacamole | https://github.com/apache/guacamole-server | Clientless remote desktop gateway | 借鉴浏览器端无插件观看/控制思路，不接 RDP/VNC 协议 |
 | noVNC | https://github.com/novnc/noVNC | 浏览器 canvas 展示远程画面和转发输入 | 借鉴 canvas 输入映射模式，协议使用本项目自定义 JSON |
 
 ## 3. 产品目标
 
-1. 同一个账号下的 Agent 设备能自动出现在设备列表。
+1. 同一个组织下的 Agent 设备能自动出现在设备列表。
 2. Viewer 能从浏览器连接任意在线设备。
 3. Viewer 能实时看到远端屏幕画面。
 4. Viewer 能发送鼠标和键盘输入到远端设备。
-5. Server 能作为单账号自托管中继运行，便于内网或公网部署。
+5. Server 能作为组织级自托管中继运行，便于内网或公网部署。
 
 ## 4. 非目标
 
@@ -46,9 +46,10 @@
 
 ### 6.1 账号认证
 
-1. Server 配置一个账号和一个访问令牌。
-2. Agent 和 Viewer 必须使用同一组账号/令牌连接。
-3. 认证失败的 HTTP API 和 WebSocket 连接应被拒绝。
+1. Server 配置一个组织 Token，Token 代表一个部署/组织。
+2. 成员账号和密码通过注册/登录接口管理，账号代表组织内成员。
+3. Agent 使用组织 Token、成员账号和成员密码上线设备；Viewer 登录后使用会话令牌访问设备。
+4. 认证失败的 HTTP API 和 WebSocket 连接应被拒绝。
 
 ### 6.2 设备注册
 
@@ -80,7 +81,7 @@
 
 | 分类 | 要求 |
 | --- | --- |
-| 安全 | 默认要求账号/令牌；生产部署必须使用 HTTPS/WSS；Agent 显式运行并在控制台显示连接状态 |
+| 安全 | 默认要求组织 Token 与成员账号密码；生产部署必须使用 HTTPS/WSS；Agent 显式运行并在控制台显示连接状态 |
 | 性能 | MVP 目标 3-8 FPS，可通过参数调整；优先稳定性 |
 | 可维护性 | Server、Agent、Shared 协议分层；协议字段保持 JSON 可读 |
 | 可部署性 | .NET 9；Server 可运行在 Windows/Linux；Agent MVP 只支持 Windows |

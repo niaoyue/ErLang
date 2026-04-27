@@ -7,14 +7,27 @@ namespace OwnDesk.Client;
 
 internal sealed class MainForm : Form
 {
+    private const int SettingsPanelWidth = 520;
+    private static readonly Color AppBackground = Color.FromArgb(244, 246, 243);
+    private static readonly Color SurfaceColor = Color.White;
+    private static readonly Color SurfaceMutedColor = Color.FromArgb(237, 241, 236);
+    private static readonly Color LineColor = Color.FromArgb(217, 223, 215);
+    private static readonly Color TextColor = Color.FromArgb(32, 36, 33);
+    private static readonly Color MutedTextColor = Color.FromArgb(102, 112, 103);
+    private static readonly Color AccentColor = Color.FromArgb(32, 119, 102);
+    private static readonly Color AccentStrongColor = Color.FromArgb(23, 92, 80);
+    private static readonly Color DangerColor = Color.FromArgb(182, 66, 60);
+
     private readonly AgentRunner _agentRunner = new();
     private readonly TextBox _serverInput = new();
     private readonly TextBox _accountInput = new();
     private readonly TextBox _tokenInput = new();
+    private readonly TextBox _passwordInput = new();
     private readonly TextBox _deviceIdInput = new();
     private readonly TextBox _deviceNameInput = new();
     private readonly CheckBox _startOnLaunchInput = new();
     private readonly CheckBox _webRtcInput = new();
+    private readonly Button _connectionSettingsButton = new();
     private readonly Button _saveButton = new();
     private readonly Button _startAgentButton = new();
     private readonly Button _stopAgentButton = new();
@@ -31,10 +44,12 @@ internal sealed class MainForm : Form
         _settings = ClientSettings.Load().Normalize();
 
         Text = "OwnDesk Client";
-        Width = 1280;
-        Height = 820;
-        MinimumSize = new Size(980, 640);
+        Width = 1360;
+        Height = 860;
+        MinimumSize = new Size(1240, 720);
         StartPosition = FormStartPosition.CenterScreen;
+        BackColor = AppBackground;
+        Font = new Font("Segoe UI", 9F);
 
         BuildLayout();
         BindSettings(_settings);
@@ -62,10 +77,16 @@ internal sealed class MainForm : Form
         var root = new SplitContainer
         {
             Dock = DockStyle.Fill,
-            SplitterDistance = 360,
-            FixedPanel = FixedPanel.Panel1
+            SplitterDistance = SettingsPanelWidth,
+            SplitterWidth = 8,
+            FixedPanel = FixedPanel.Panel1,
+            Panel1MinSize = 430,
+            Panel2MinSize = 640,
+            BackColor = LineColor
         };
 
+        root.Panel1.BackColor = AppBackground;
+        root.Panel2.BackColor = AppBackground;
         root.Panel1.Controls.Add(BuildSettingsPanel());
         root.Panel2.Controls.Add(_webView);
         _webView.Dock = DockStyle.Fill;
@@ -79,9 +100,13 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 5,
-            Padding = new Padding(16)
+            RowCount = 7,
+            Padding = new Padding(18),
+            BackColor = AppBackground
         };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -91,67 +116,113 @@ internal sealed class MainForm : Form
         var title = new Label
         {
             AutoSize = true,
-            Font = new Font(Font, FontStyle.Bold),
-            Text = "OwnDesk Client"
+            Font = new Font(Font.FontFamily, 16F, FontStyle.Bold),
+            ForeColor = TextColor,
+            Text = "设备与成员",
+            Margin = new Padding(0, 0, 0, 2)
         };
         panel.Controls.Add(title);
+
+        var subtitle = new Label
+        {
+            AutoSize = true,
+            ForeColor = MutedTextColor,
+            Margin = new Padding(0, 0, 0, 2),
+            MaximumSize = new Size(SettingsPanelWidth - 42, 0),
+            Text = "组织 Token 用于识别部署；账号和密码用于成员登录。"
+        };
+        panel.Controls.Add(subtitle);
 
         var form = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 1,
-            Padding = new Padding(0, 16, 0, 8)
+            Padding = new Padding(0, 14, 0, 10),
+            BackColor = AppBackground
         };
 
-        AddField(form, "Server", _serverInput);
-        AddField(form, "Account", _accountInput);
-        AddField(form, "Token", _tokenInput);
-        AddField(form, "Device ID", _deviceIdInput);
-        AddField(form, "Device Name", _deviceNameInput);
+        AddField(form, "组织 Token", _tokenInput);
+        AddField(form, "成员账号", _accountInput);
+        AddField(form, "成员密码", _passwordInput);
+        AddField(form, "设备 ID", _deviceIdInput);
+        AddField(form, "设备名称", _deviceNameInput);
 
         _tokenInput.UseSystemPasswordChar = true;
+        _passwordInput.UseSystemPasswordChar = true;
 
-        _startOnLaunchInput.Text = "Start local agent on launch";
+        _startOnLaunchInput.Text = "启动客户端时自动上线本机";
         _startOnLaunchInput.AutoSize = true;
-        _webRtcInput.Text = "Enable WebRTC video";
+        _webRtcInput.Text = "启用 WebRTC 实验视频";
         _webRtcInput.AutoSize = true;
         form.Controls.Add(_startOnLaunchInput);
         form.Controls.Add(_webRtcInput);
 
         panel.Controls.Add(form);
 
+        var connectionPanel = new Panel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            Visible = false,
+            BackColor = AppBackground,
+            Padding = new Padding(0, 0, 0, 8)
+        };
+        var connectionForm = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            ColumnCount = 1,
+            BackColor = AppBackground
+        };
+        AddField(connectionForm, "连接地址", _serverInput);
+        connectionPanel.Controls.Add(connectionForm);
+
         var buttons = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            WrapContents = true
+            WrapContents = true,
+            BackColor = AppBackground,
+            Margin = new Padding(0, 0, 0, 8)
         };
 
-        ConfigureButton(_saveButton, "Save", async (_, _) => await SaveSettingsAsync());
-        ConfigureButton(_startAgentButton, "Start Agent", async (_, _) => await StartAgentAsync());
-        ConfigureButton(_stopAgentButton, "Stop Agent", async (_, _) => await StopAgentAsync());
-        ConfigureButton(_openViewerButton, "Open Viewer", async (_, _) => await NavigateViewerAsync(autoLogin: true));
+        ConfigureButton(_connectionSettingsButton, "连接设置", (_, _) =>
+        {
+            connectionPanel.Visible = !connectionPanel.Visible;
+            _connectionSettingsButton.Text = connectionPanel.Visible ? "隐藏连接设置" : "连接设置";
+        });
+        ConfigureButton(_saveButton, "保存", async (_, _) => await SaveSettingsAsync());
+        ConfigureButton(_startAgentButton, "上线本机", async (_, _) => await StartAgentAsync(), primary: true);
+        ConfigureButton(_stopAgentButton, "停止上线", async (_, _) => await StopAgentAsync(), danger: true);
+        ConfigureButton(_openViewerButton, "打开控制台", async (_, _) => await NavigateViewerAsync(autoLogin: true));
 
-        buttons.Controls.AddRange([_saveButton, _startAgentButton, _stopAgentButton, _openViewerButton]);
+        buttons.Controls.AddRange([_connectionSettingsButton, _saveButton, _startAgentButton, _stopAgentButton, _openViewerButton]);
         panel.Controls.Add(buttons);
+        panel.Controls.Add(connectionPanel);
 
         _logOutput.Dock = DockStyle.Fill;
         _logOutput.Multiline = true;
         _logOutput.ReadOnly = true;
         _logOutput.ScrollBars = ScrollBars.Vertical;
         _logOutput.BorderStyle = BorderStyle.FixedSingle;
+        _logOutput.BackColor = SurfaceColor;
+        _logOutput.ForeColor = TextColor;
+        _logOutput.Margin = new Padding(0, 4, 0, 10);
         panel.Controls.Add(_logOutput);
 
         var statusPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Bottom,
             AutoSize = true,
-            ColumnCount = 1
+            ColumnCount = 1,
+            BackColor = AppBackground
         };
 
         _agentStatus.AutoSize = true;
         _viewerStatus.AutoSize = true;
+        _agentStatus.ForeColor = MutedTextColor;
+        _viewerStatus.ForeColor = MutedTextColor;
         statusPanel.Controls.Add(_agentStatus);
         statusPanel.Controls.Add(_viewerStatus);
         panel.Controls.Add(statusPanel);
@@ -165,21 +236,51 @@ internal sealed class MainForm : Form
         {
             Text = labelText,
             AutoSize = true,
-            Margin = new Padding(0, 8, 0, 3)
+            ForeColor = MutedTextColor,
+            Margin = new Padding(0, 8, 0, 4)
         };
 
         input.Dock = DockStyle.Top;
+        input.AutoSize = false;
+        input.Height = 34;
+        input.BorderStyle = BorderStyle.FixedSingle;
+        input.BackColor = SurfaceColor;
+        input.ForeColor = TextColor;
         input.Margin = new Padding(0, 0, 0, 4);
 
         form.Controls.Add(label);
         form.Controls.Add(input);
     }
 
-    private static void ConfigureButton(Button button, string text, EventHandler handler)
+    private static void ConfigureButton(Button button, string text, EventHandler handler, bool primary = false, bool danger = false)
     {
         button.Text = text;
         button.AutoSize = true;
+        button.Height = 34;
+        button.Padding = new Padding(12, 0, 12, 0);
         button.Margin = new Padding(0, 0, 8, 8);
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.FlatAppearance.BorderSize = 1;
+        if (primary)
+        {
+            button.BackColor = AccentColor;
+            button.ForeColor = Color.White;
+            button.FlatAppearance.BorderColor = AccentColor;
+        }
+        else if (danger)
+        {
+            button.BackColor = Color.FromArgb(252, 241, 240);
+            button.ForeColor = DangerColor;
+            button.FlatAppearance.BorderColor = Color.FromArgb(230, 188, 185);
+        }
+        else
+        {
+            button.BackColor = SurfaceMutedColor;
+            button.ForeColor = primary ? Color.White : TextColor;
+            button.FlatAppearance.BorderColor = LineColor;
+        }
+
         button.Click += handler;
     }
 
@@ -188,6 +289,7 @@ internal sealed class MainForm : Form
         _serverInput.Text = settings.Server;
         _accountInput.Text = settings.Account;
         _tokenInput.Text = settings.Token;
+        _passwordInput.Text = settings.Password;
         _deviceIdInput.Text = settings.DeviceId;
         _deviceNameInput.Text = settings.DeviceName;
         _startOnLaunchInput.Checked = settings.StartAgentOnLaunch;
@@ -201,6 +303,7 @@ internal sealed class MainForm : Form
             Server = _serverInput.Text,
             Account = _accountInput.Text,
             Token = _tokenInput.Text,
+            Password = _passwordInput.Text,
             DeviceId = _deviceIdInput.Text,
             DeviceName = _deviceNameInput.Text,
             StartAgentOnLaunch = _startOnLaunchInput.Checked,
@@ -213,16 +316,19 @@ internal sealed class MainForm : Form
         try
         {
             await _webView.EnsureCoreWebView2Async();
-            _viewerStatus.Text = "Viewer ready";
+            _viewerStatus.Text = "控制台：已就绪";
             await NavigateViewerAsync(autoLogin: false);
         }
         catch (Exception ex)
         {
-            _viewerStatus.Text = "Viewer unavailable";
+            _viewerStatus.Text = "控制台：不可用";
             AppendLog($"WebView2 failed: {ex.Message}");
         }
 
-        if (_settings.StartAgentOnLaunch && !string.IsNullOrWhiteSpace(_settings.Token))
+        if (_settings.StartAgentOnLaunch &&
+            !string.IsNullOrWhiteSpace(_settings.Token) &&
+            !string.IsNullOrWhiteSpace(_settings.Account) &&
+            !string.IsNullOrWhiteSpace(_settings.Password))
         {
             await StartAgentAsync();
             await NavigateViewerAsync(autoLogin: true);
@@ -292,7 +398,7 @@ internal sealed class MainForm : Form
 
         if (!Uri.TryCreate($"{_settings.Server}/index.html", UriKind.Absolute, out var uri))
         {
-            _viewerStatus.Text = "Invalid server URL";
+            _viewerStatus.Text = "连接地址无效";
             return;
         }
 
@@ -316,7 +422,7 @@ internal sealed class MainForm : Form
         }
 
         _webView.Source = uri;
-        _viewerStatus.Text = $"Viewer: {uri.Host}";
+        _viewerStatus.Text = "控制台：已打开";
 
         if (navigation is not null)
         {
@@ -327,23 +433,29 @@ internal sealed class MainForm : Form
 
     private async Task AutoLoginViewerAsync()
     {
-        if (_webView.CoreWebView2 is null || string.IsNullOrWhiteSpace(_settings.Token))
+        if (_webView.CoreWebView2 is null ||
+            string.IsNullOrWhiteSpace(_settings.Token) ||
+            string.IsNullOrWhiteSpace(_settings.Account) ||
+            string.IsNullOrWhiteSpace(_settings.Password))
         {
             return;
         }
 
         var account = JsonSerializer.Serialize(_settings.Account);
         var token = JsonSerializer.Serialize(_settings.Token);
+        var password = JsonSerializer.Serialize(_settings.Password);
         var script = $$"""
             (() => {
               const account = document.getElementById("accountInput");
-              const token = document.getElementById("tokenInput");
+              const token = document.getElementById("organizationTokenInput");
+              const password = document.getElementById("passwordInput");
               const form = document.getElementById("loginForm");
-              if (!account || !token || !form) {
+              if (!account || !token || !password || !form) {
                 return "missing-login-form";
               }
               account.value = {{account}};
               token.value = {{token}};
+              password.value = {{password}};
               if (typeof form.requestSubmit === "function") {
                 form.requestSubmit();
               } else {
@@ -358,7 +470,7 @@ internal sealed class MainForm : Form
 
     private void SetAgentRunning(bool running)
     {
-        _agentStatus.Text = running ? "Agent: running" : "Agent: stopped";
+        _agentStatus.Text = running ? "本机上线：运行中" : "本机上线：已停止";
         _startAgentButton.Enabled = !running;
         _stopAgentButton.Enabled = running;
     }

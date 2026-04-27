@@ -11,7 +11,7 @@ on:
       tag:
         description: "Release tag to build"
         required: true
-        default: "v0.1.0"
+        default: "v0.2.0"
 
 permissions:
   contents: write
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      DEFAULT_RELEASE_TAG: v0.1.0
+      DEFAULT_RELEASE_TAG: v0.2.0
 
     steps:
       - name: Resolve release metadata
@@ -109,12 +109,13 @@ jobs:
           unzip OwnDesk.Server-linux-x64-${{ steps.release.outputs.tag }}.zip
           cd OwnDesk.Server-linux-x64
           chmod +x OwnDesk.Server
-          OWNDESK_ACCOUNT=me \
           OWNDESK_TOKEN=replace-with-a-long-random-token \
+          OWNDESK_AUTH_STORE=/opt/owndesk/owndesk-auth.json \
           ASPNETCORE_URLS=http://0.0.0.0:5080 \
           ./OwnDesk.Server
           ```
 
+          Open the web console, switch to Register, and create the first member with the organization token.
           For public use, put the server behind HTTPS/WSS reverse proxy or a load balancer.
 
           ## Windows Client Quick Start
@@ -128,17 +129,19 @@ jobs:
           Fill in:
 
           ```text
-          Server: https://YOUR_DOMAIN
-          Account: me
-          Token: your server token
+          Connection settings: https://YOUR_DOMAIN
+          Organization Token: your organization token
+          Member Account: me
+          Member Password: your member password
           ```
 
-          Click `Start Agent` to make the Windows machine appear in the online device list.
+          Click `上线本机` to make the Windows machine appear in the online device list.
 
           ## Notes
 
           - The Windows client still requires Microsoft Edge WebView2 Runtime if it is not already installed.
-          - The server has no built-in default token; set `OWNDESK_TOKEN` explicitly.
+          - The server has no built-in default organization token; set `OWNDESK_TOKEN` explicitly.
+          - Member accounts are registered through the web console or integrated client UI.
           - Current WebRTC media path is experimental; JPEG/WebSocket relay remains available as fallback.
           EOF
 

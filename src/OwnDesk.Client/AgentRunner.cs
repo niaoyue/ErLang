@@ -29,7 +29,17 @@ internal sealed class AgentRunner : IDisposable
 
         if (string.IsNullOrWhiteSpace(settings.Token))
         {
-            throw new InvalidOperationException("Token is required.");
+            throw new InvalidOperationException("Organization token is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.Account))
+        {
+            throw new InvalidOperationException("Member account is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.Password))
+        {
+            throw new InvalidOperationException("Password is required.");
         }
 
         lock (_gate)
@@ -127,6 +137,8 @@ internal sealed class AgentRunner : IDisposable
             settings.Account,
             "--token",
             settings.Token,
+            "--password",
+            settings.Password,
             "--device-id",
             settings.DeviceId,
             "--device-name",

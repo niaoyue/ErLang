@@ -1,6 +1,9 @@
 const state = {
   account: "",
   token: "",
+  password: "",
+  sessionToken: "",
+  authMode: "login",
   socket: null,
   webRtcSocket: null,
   webRtcPeer: null,
@@ -44,8 +47,15 @@ const decodeStatusStaleMs = 1500;
 
 const elements = {
   loginForm: document.getElementById("loginForm"),
+  loginModeButton: document.getElementById("loginModeButton"),
+  registerModeButton: document.getElementById("registerModeButton"),
+  organizationTokenInput: document.getElementById("organizationTokenInput"),
   accountInput: document.getElementById("accountInput"),
-  tokenInput: document.getElementById("tokenInput"),
+  passwordInput: document.getElementById("passwordInput"),
+  confirmPasswordLabel: document.getElementById("confirmPasswordLabel"),
+  confirmPasswordInput: document.getElementById("confirmPasswordInput"),
+  authSubmitButton: document.getElementById("authSubmitButton"),
+  authHint: document.getElementById("authHint"),
   refreshButton: document.getElementById("refreshButton"),
   localDebugButton: document.getElementById("localDebugButton"),
   pointerLockButton: document.getElementById("pointerLockButton"),
@@ -87,13 +97,9 @@ for (const query of mobileControlQueries) {
   query.addEventListener?.("change", configureMobileControls);
 }
 
-elements.loginForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  state.account = elements.accountInput.value.trim();
-  state.token = elements.tokenInput.value;
-  elements.serverStatus.textContent = "已登录";
-  await refreshDevices();
-});
+elements.loginForm.addEventListener("submit", handleAuthSubmit);
+elements.loginModeButton.addEventListener("click", () => setAuthMode("login"));
+elements.registerModeButton.addEventListener("click", () => setAuthMode("register"));
 
 elements.refreshButton.addEventListener("click", refreshDevices);
 elements.localDebugButton.addEventListener("click", toggleLocalDebugMode);
@@ -309,8 +315,101 @@ window.addEventListener("resize", () => {
   positionRemoteCursor();
 });
 
+function setAuthMode(mode) {
+  state.authMode = mode;
+  const isRegister = mode === "register";
+  elements.loginModeButton.classList.toggle("active", !isRegister);
+  elements.registerModeButton.classList.toggle("active", isRegister);
+  elements.confirmPasswordLabel.hidden = !isRegister;
+  elements.confirmPasswordInput.required = isRegister;
+  elements.passwordInput.autocomplete = isRegister ? "new-password" : "current-password";
+  elements.authSubmitButton.textContent = isRegister ? "注册并登录" : "登录";
+  elements.authHint.classList.remove("error");
+  elements.authHint.textContent = isRegister
+    ? "使用组织 Token 创建成员账号，之后可在客户端和控制台登录。"
+    : "登录后显示本组织的在线设备。";
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+  const organizationToken = elements.organizationTokenInput.value.trim();
+  const username = elements.accountInput.value.trim();
+  const password = elements.passwordInput.value;
+  const confirmPassword = elements.confirmPasswordInput.value;
+
+  if (!organizationToken || !username || !password) {
+    setAuthHint("请填写组织 Token、账号和密码。", true);
+    return;
+  }
+
+  if (state.authMode === "register" && password !== confirmPassword) {
+    setAuthHint("两次输入的密码不一致。", true);
+    return;
+  }
+
+  const endpoint = state.authMode === "register" ? "/api/register" : "/api/login";
+  elements.authSubmitButton.disabled = true;
+  setAuthHint(state.authMode === "register" ? "正在注册..." : "正在登录...");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        organizationToken,
+        username,
+        password
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await authErrorMessage(response));
+    }
+
+    const session = await response.json();
+    state.account = session.username || username;
+    state.token = organizationToken;
+    state.password = password;
+    state.sessionToken = session.sessionToken || "";
+    elements.serverStatus.textContent = "已登录";
+    setAuthHint(state.authMode === "register" ? "注册成功，已登录。" : "登录成功。");
+    await refreshDevices();
+  } catch (error) {
+    state.sessionToken = "";
+    renderDevices([]);
+    elements.serverStatus.textContent = "未登录";
+    setAuthHint(error.message || "认证失败。", true);
+  } finally {
+    elements.authSubmitButton.disabled = false;
+  }
+}
+
+async function authErrorMessage(response) {
+  if (response.status === 401) {
+    return "组织 Token、账号或密码不正确。";
+  }
+
+  if (response.status === 409) {
+    return "账号已存在，请直接登录。";
+  }
+
+  try {
+    const payload = await response.json();
+    return payload.message || `HTTP ${response.status}`;
+  } catch {
+    return `HTTP ${response.status}`;
+  }
+}
+
+function setAuthHint(message, isError = false) {
+  elements.authHint.textContent = message;
+  elements.authHint.classList.toggle("error", isError);
+}
+
 async function refreshDevices() {
-  if (!state.account || !state.token) {
+  if (!state.account || !state.token || !state.sessionToken) {
     renderDevices([]);
     return;
   }
@@ -329,7 +428,7 @@ async function refreshDevices() {
 
     state.devices = await response.json();
     renderDevices(state.devices);
-    elements.serverStatus.textContent = "在线";
+    elements.serverStatus.textContent = "已登录";
   } catch (error) {
     renderDevices([]);
     elements.serverStatus.textContent = error.message;
@@ -1776,7 +1875,8 @@ function authPayload() {
   return {
     type: "auth",
     account: state.account,
-    token: state.token
+    token: state.token,
+    sessionToken: state.sessionToken
   };
 }
 

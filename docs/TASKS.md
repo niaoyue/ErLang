@@ -20,7 +20,7 @@
 
 - [x] C1. 定义 WebSocket 消息类型
 - [x] C2. 定义设备、帧、输入 DTO
-- [x] C3. 实现单账号认证
+- [x] C3. 实现组织 Token 与成员账号认证
 - [x] C4. 实现 Server/WebSocket URI 构造工具
 
 ## D. Server

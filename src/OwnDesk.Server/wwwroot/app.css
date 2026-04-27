@@ -91,10 +91,39 @@ button:disabled {
   padding: 14px;
 }
 
+.auth-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.auth-tab {
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-weight: 650;
+}
+
+.auth-tab.active {
+  color: #fff;
+  background: var(--accent);
+}
+
 .panel label {
   display: grid;
   gap: 7px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   color: var(--muted);
   font-size: 13px;
 }
@@ -128,6 +157,17 @@ canvas:focus {
 
 .primary:hover {
   background: var(--accent-strong);
+}
+
+.auth-hint {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.auth-hint.error {
+  color: var(--danger);
 }
 
 .panel-title {
