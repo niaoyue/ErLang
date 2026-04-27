@@ -14,7 +14,9 @@ docs/
 src/
   OwnDesk.Shared/
   OwnDesk.Server/
+  OwnDesk.Agent.Core/
   OwnDesk.Agent/
+  OwnDesk.Client/
 tests/
   OwnDesk.Tests/
 ```
@@ -64,11 +66,69 @@ dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server http://1
 
 也可以用环境变量：`OWNDESK_SERVER`、`OWNDESK_ACCOUNT`、`OWNDESK_TOKEN`、`OWNDESK_DEVICE_ID`、`OWNDESK_DEVICE_NAME`、`OWNDESK_FPS`、`OWNDESK_JPEG_QUALITY`、`OWNDESK_MAX_WIDTH`、`OWNDESK_MAX_HEIGHT`、`OWNDESK_QUALITY_PROFILE`、`OWNDESK_WEBRTC`、`OWNDESK_WEBRTC_CODEC`、`OWNDESK_WEBRTC_BITRATE_KBPS`、`OWNDESK_CAPTURE_BACKEND`。
 
+## 运行 Windows 一体化 Client
+
+`OwnDesk.Client` 是 ToDesk 类似的 Windows 一体化入口：Server 仍然部署在云服务器，Client 在 Windows 电脑上同时运行本机 Agent 和内嵌 Viewer。
+
+```text
+OwnDesk.Server  -> 云服务器
+OwnDesk.Client  -> Windows 一体化客户端，自动让本机上线，也能控制在线设备
+```
+
+开发运行：
+
+```powershell
+dotnet run --project src\OwnDesk.Client\OwnDesk.Client.csproj
+```
+
+首次打开后填写：
+
+| 字段 | 示例 | 说明 |
+| --- | --- | --- |
+| `Server` | `https://owndesk.zhonglehd.cn` | 云端 Server 地址 |
+| `Account` | `me` | 与 Server 的 `OWNDESK_ACCOUNT` 一致 |
+| `Token` | `replace-with-a-long-random-token` | 与 Server 的 `OWNDESK_TOKEN` 一致 |
+| `Device ID` | `pc-1` | 账号下唯一设备 ID，默认当前机器名 |
+| `Device Name` | `pc-1` | 界面显示名称，默认当前机器名 |
+
+点 `Start Agent` 后，这台 Windows 电脑会注册为在线设备；右侧内嵌 WebView2 Viewer 会打开 Server 控制台并自动填入账号令牌。也可以勾选 `Start local agent on launch`，下次启动 Client 时自动上线本机。
+
+配置保存到：
+
+```text
+%APPDATA%\OwnDesk\client-settings.json
+```
+
+这个文件会保存访问令牌，应只放在自有受信任的 Windows 账号下使用。
+
+发布 Windows x64 客户端：
+
+```powershell
+dotnet publish src\OwnDesk.Client\OwnDesk.Client.csproj -c Release -r win-x64 --self-contained false
+```
+
+生成目录：
+
+```text
+src\OwnDesk.Client\bin\Release\net9.0-windows\win-x64\publish\
+```
+
+上面的发布方式依赖目标机器已安装 .NET 9 Desktop Runtime；如果希望把 .NET 运行时一起打包，可以改用 `--self-contained true`。
+
+Client 使用 Microsoft WebView2 内嵌浏览器。大多数 Windows 10/11 已自带 WebView2 Runtime；如果目标机器没有，需要先安装 Microsoft Edge WebView2 Runtime。
+
 ## 测试
 
 ```powershell
 dotnet build OwnDesk.sln
 dotnet test OwnDesk.sln
+```
+
+如果在 Linux/macOS 上交叉构建 Windows Agent/Client，需要加：
+
+```powershell
+dotnet build OwnDesk.sln /p:EnableWindowsTargeting=true
+dotnet test OwnDesk.sln /p:EnableWindowsTargeting=true
 ```
 
 本轮已执行并通过：
