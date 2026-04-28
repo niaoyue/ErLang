@@ -25,7 +25,7 @@ internal sealed class WebSocketRelay
         WebSocket socket,
         CancellationToken cancellationToken)
     {
-        var session = _registry.RegisterAgent(organizationId, deviceId, deviceName, socket);
+        var session = await _registry.RegisterAgentAsync(organizationId, deviceId, deviceName, socket, cancellationToken);
         _logger.LogInformation("Agent connected: {OrganizationId}/{DeviceId} ({DeviceName})", organizationId, deviceId, deviceName);
 
         try
@@ -65,7 +65,12 @@ internal sealed class WebSocketRelay
                     var hello = JsonSerializer.Deserialize<AgentHelloMessage>(text, JsonDefaults.Options);
                     if (hello is not null)
                     {
-                        _registry.UpdateHello(session, hello.DeviceName, hello.ScreenWidth, hello.ScreenHeight);
+                        await _registry.UpdateHelloAsync(
+                            session,
+                            hello.DeviceName,
+                            hello.ScreenWidth,
+                            hello.ScreenHeight,
+                            cancellationToken);
                     }
                 }
                 else if (type == OwnDeskMessageTypes.Frame && TryGetFrameMetadata(text, out var width, out var height))
@@ -92,7 +97,7 @@ internal sealed class WebSocketRelay
         }
         finally
         {
-            _registry.UnregisterAgent(session);
+            await _registry.UnregisterAgentAsync(session, CancellationToken.None);
             _logger.LogInformation("Agent disconnected: {OrganizationId}/{DeviceId}", organizationId, deviceId);
         }
     }

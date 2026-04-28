@@ -8,6 +8,7 @@ public static class OwnDeskMessageTypes
     public const string Input = "input";
     public const string StreamQuality = "streamQuality";
     public const string Device = "device";
+    public const string DeviceListChanged = "deviceListChanged";
     public const string Error = "error";
     public const string WebRtcCapabilities = "webrtcCapabilities";
     public const string WebRtcOffer = "webrtcOffer";

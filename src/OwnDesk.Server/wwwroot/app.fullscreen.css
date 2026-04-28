@@ -1,0 +1,267 @@
+.workspace:is(:fullscreen, .host-fullscreen) {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  background: #050606;
+}
+
+html.host-fullscreen body {
+  overflow: hidden;
+  background: #050606;
+}
+
+html.host-fullscreen .shell {
+  min-height: 100vh;
+  padding: 0;
+  display: block;
+}
+
+html.host-fullscreen .layout {
+  height: 100vh;
+  display: block;
+}
+
+html.host-fullscreen .sidebar {
+  display: none;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .screen-bar {
+  position: absolute;
+  z-index: 20;
+  top: max(8px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  right: max(8px, env(safe-area-inset-right));
+  min-height: 0;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgb(16 20 19 / 78%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  backdrop-filter: blur(12px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen).toolbar-hidden .screen-bar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(-100% - 14px));
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .screen-bar > div:first-child {
+  display: none;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .screen-actions {
+  justify-content: center;
+  gap: 6px;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .screen-shell {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #050606;
+  box-shadow: none;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) canvas,
+.workspace:is(:fullscreen, .host-fullscreen) #webrtcVideo {
+  border: 0;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .icon-button {
+  width: 32px;
+  height: 32px;
+  border-color: transparent;
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .icon-button:hover {
+  border-color: rgb(255 255 255 / 28%);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .icon-button.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .quality-select {
+  width: 72px;
+  height: 32px;
+  border-color: transparent;
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .status-pill {
+  min-width: auto;
+  height: 28px;
+  border-color: transparent;
+  color: #fff;
+  background: rgb(32 119 102 / 82%);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .status-pill.offline {
+  color: #fff;
+  background: rgb(148 99 21 / 86%);
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .keyboard-panel {
+  position: absolute;
+  z-index: 25;
+  right: max(8px, env(safe-area-inset-right));
+  bottom: max(8px, env(safe-area-inset-bottom));
+  left: max(8px, env(safe-area-inset-left));
+  border-color: transparent;
+  background: rgb(255 255 255 / 92%);
+}
+
+.fullscreen-toolbar-toggle {
+  display: none;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen) .fullscreen-toolbar-toggle {
+  position: absolute;
+  z-index: 30;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(32 119 102 / 88%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 34%);
+  font-size: 22px;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.workspace:is(:fullscreen, .host-fullscreen):not(.toolbar-hidden) .fullscreen-toolbar-toggle {
+  top: max(58px, env(safe-area-inset-top));
+  background: rgb(16 20 19 / 78%);
+}
+
+@media (max-width: 860px) {
+  .shell {
+    padding: 12px;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .screen-shell {
+    min-height: 320px;
+  }
+
+  .screen-bar {
+    align-items: flex-start;
+  }
+
+  .screen-actions {
+    gap: 6px;
+  }
+
+  .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .quality-select {
+    width: 74px;
+    height: 36px;
+  }
+
+  .screen-title {
+    max-width: 60vw;
+  }
+}
+
+@media (max-width: 540px) {
+  .shell {
+    padding: 8px;
+  }
+
+  .topbar {
+    min-height: 48px;
+  }
+
+  .brand {
+    font-size: 20px;
+  }
+
+  .screen-bar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .screen-title {
+    max-width: 92vw;
+  }
+
+  .screen-shell {
+    min-height: 58vh;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  canvas,
+  #webrtcVideo {
+    border: 0;
+  }
+
+  .status-pill {
+    min-width: 64px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .screen-bar {
+    top: max(6px, env(safe-area-inset-top));
+    left: max(6px, env(safe-area-inset-left));
+    right: max(6px, env(safe-area-inset-right));
+    padding: 5px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .screen-actions {
+    gap: 5px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .icon-button {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .quality-select {
+    width: 68px;
+    height: 30px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .status-pill {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .workspace:is(:fullscreen, .host-fullscreen) .fullscreen-toolbar-toggle {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+}

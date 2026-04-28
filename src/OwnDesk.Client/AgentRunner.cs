@@ -1,3 +1,4 @@
+using System.Text;
 using OwnDesk.Agent;
 
 namespace OwnDesk.Client;
@@ -23,21 +24,27 @@ internal sealed class AgentRunner : IDisposable
         }
     }
 
-    public Task StartAsync(ClientSettings settings)
+    public Task StartAsync(ClientOrganization organization, ClientSettings settings)
     {
+        organization = organization.Normalize(0);
         settings = settings.Normalize();
 
-        if (string.IsNullOrWhiteSpace(settings.Token))
+        if (string.IsNullOrWhiteSpace(organization.Server))
+        {
+            throw new InvalidOperationException("Organization server URL is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(organization.Token))
         {
             throw new InvalidOperationException("Organization token is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(settings.Account))
+        if (string.IsNullOrWhiteSpace(organization.Account))
         {
             throw new InvalidOperationException("Member account is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(settings.Password))
+        if (string.IsNullOrWhiteSpace(organization.Password))
         {
             throw new InvalidOperationException("Password is required.");
         }
@@ -50,7 +57,7 @@ internal sealed class AgentRunner : IDisposable
             }
 
             _shutdown = new CancellationTokenSource();
-            _runTask = RunAgentAsync(settings, _shutdown.Token);
+            _runTask = RunAgentAsync(organization, settings, _shutdown.Token);
         }
 
         StatusChanged?.Invoke(this, "Agent starting");
@@ -101,14 +108,18 @@ internal sealed class AgentRunner : IDisposable
         _shutdown?.Dispose();
     }
 
-    private async Task RunAgentAsync(ClientSettings settings, CancellationToken cancellationToken)
+    private async Task RunAgentAsync(
+        ClientOrganization organization,
+        ClientSettings settings,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var options = AgentOptions.Parse(BuildAgentArgs(settings));
+            var options = AgentOptions.Parse(BuildAgentArgs(organization, settings));
             var qualityController = new StreamQualityController(options);
             var captureBackendPlan = ScreenCaptureBackendPlan.Create(options);
 
+            using var consoleLog = new AgentConsoleLogScope();
             using var screenCapture = new ScreenCaptureService(
                 ScreenCaptureBackendFactory.Create(captureBackendPlan),
                 captureBackendPlan);
@@ -127,18 +138,18 @@ internal sealed class AgentRunner : IDisposable
         }
     }
 
-    private static string[] BuildAgentArgs(ClientSettings settings)
+    private static string[] BuildAgentArgs(ClientOrganization organization, ClientSettings settings)
     {
         return
         [
             "--server",
-            settings.Server,
+            organization.Server,
             "--account",
-            settings.Account,
+            organization.Account,
             "--token",
-            settings.Token,
+            organization.Token,
             "--password",
-            settings.Password,
+            organization.Password,
             "--device-id",
             settings.DeviceId,
             "--device-name",
@@ -146,5 +157,116 @@ internal sealed class AgentRunner : IDisposable
             "--webrtc",
             settings.EnableWebRtc ? "true" : "false"
         ];
+    }
+
+    private sealed class AgentConsoleLogScope : IDisposable
+    {
+        private readonly TextWriter _originalOut;
+        private readonly TextWriter _originalError;
+        private readonly AgentConsoleLogWriter _writer;
+
+        public AgentConsoleLogScope()
+        {
+            _originalOut = Console.Out;
+            _originalError = Console.Error;
+            _writer = new AgentConsoleLogWriter(_originalOut);
+            Console.SetOut(_writer);
+            Console.SetError(_writer);
+        }
+
+        public void Dispose()
+        {
+            Console.SetOut(_originalOut);
+            Console.SetError(_originalError);
+            _writer.Dispose();
+        }
+    }
+
+    private sealed class AgentConsoleLogWriter(TextWriter forward) : TextWriter
+    {
+        private readonly object _gate = new();
+        private readonly StringBuilder _buffer = new();
+
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override void Write(char value)
+        {
+            lock (_gate)
+            {
+                if (value == '\r')
+                {
+                    return;
+                }
+
+                if (value == '\n')
+                {
+                    FlushLine();
+                    return;
+                }
+
+                _buffer.Append(value);
+            }
+        }
+
+        public override void Write(string? value)
+        {
+            if (value is null)
+            {
+                return;
+            }
+
+            foreach (var item in value)
+            {
+                Write(item);
+            }
+        }
+
+        public override void WriteLine()
+        {
+            lock (_gate)
+            {
+                FlushLine();
+            }
+        }
+
+        public override void WriteLine(string? value)
+        {
+            Write(value);
+            WriteLine();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                lock (_gate)
+                {
+                    FlushLine();
+                }
+            }
+
+            base.Dispose(disposing);
+        }
+
+        private void FlushLine()
+        {
+            if (_buffer.Length == 0)
+            {
+                return;
+            }
+
+            var line = _buffer.ToString();
+            _buffer.Clear();
+            ClientLog.Write($"Agent: {line}");
+
+            try
+            {
+                forward.WriteLine(line);
+            }
+            catch
+            {
+                // Console forwarding is best effort only.
+            }
+        }
     }
 }

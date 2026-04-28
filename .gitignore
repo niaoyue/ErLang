@@ -6,6 +6,7 @@ obj/
 *.suo
 TestResults/
 artifacts/
+.codex/
 *.log
 *_github
 *_github.pub

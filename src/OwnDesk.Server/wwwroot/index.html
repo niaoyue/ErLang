@@ -4,7 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OwnDesk</title>
-  <link rel="stylesheet" href="/app.css?v=20260427-org-members">
+  <script>
+    if (new URLSearchParams(location.search).get("embedded") === "client") {
+      document.documentElement.classList.add("embedded-client");
+    }
+  </script>
+  <link rel="stylesheet" href="/app.css?v=20260428-webrtc-ice3">
 </head>
 <body>
   <div class="shell">
@@ -18,34 +23,72 @@
 
     <main class="layout">
       <aside class="sidebar">
-        <form class="panel auth-panel" id="loginForm" autocomplete="off">
-          <div class="auth-tabs" role="tablist" aria-label="认证模式">
-            <button type="button" class="auth-tab active" id="loginModeButton" data-auth-mode="login">登录</button>
-            <button type="button" class="auth-tab" id="registerModeButton" data-auth-mode="register">注册</button>
+        <section class="panel collapsible-panel organization-panel" data-section="organization">
+          <button type="button" class="collapsible-header" data-toggle-section="organization">
+            <span class="collapse-arrow">▾</span>
+            <span>组织</span>
+          </button>
+          <div class="collapsible-body">
+            <select class="organization-select" id="organizationSelect" aria-label="选择组织"></select>
+            <div class="button-grid three">
+              <button type="button" id="addOrganizationButton">新增</button>
+              <button type="button" id="saveOrganizationButton">保存组织</button>
+              <button type="button" class="danger" id="deleteOrganizationButton">删除</button>
+            </div>
+            <label>
+              <span>组织名称</span>
+              <input id="organizationNameInput" name="organizationName" placeholder="组织名称">
+            </label>
+            <label>
+              <span>服务器 URL</span>
+              <input id="serverUrlInput" name="serverUrl" placeholder="默认当前服务器">
+            </label>
+            <label>
+              <span>组织 Token</span>
+              <input id="organizationTokenInput" name="organizationToken" type="password" placeholder="组织 Token">
+            </label>
           </div>
-          <label>
-            <span>组织 Token</span>
-            <input id="organizationTokenInput" name="organizationToken" type="password" placeholder="组织管理员提供的 Token" required>
-          </label>
-          <label>
-            <span>成员账号</span>
-            <input id="accountInput" name="account" autocomplete="username" placeholder="成员账号" required>
-          </label>
-          <label>
-            <span>密码</span>
-            <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="成员密码" required>
-          </label>
-          <label id="confirmPasswordLabel" hidden>
-            <span>确认密码</span>
-            <input id="confirmPasswordInput" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码">
-          </label>
-          <button class="primary" id="authSubmitButton" type="submit">登录</button>
-          <div class="auth-hint" id="authHint">登录后显示本组织的在线设备。</div>
-        </form>
+        </section>
 
-        <div class="panel device-panel">
-          <div class="panel-title">
-            <span>在线设备</span>
+        <section class="panel collapsible-panel member-panel" data-section="member">
+          <button type="button" class="collapsible-header" data-toggle-section="member">
+            <span class="collapse-arrow">▾</span>
+            <span>成员</span>
+          </button>
+          <div class="collapsible-body">
+            <form class="auth-panel" id="loginForm" autocomplete="off">
+              <div class="auth-tabs" role="tablist" aria-label="认证模式">
+                <button type="button" class="auth-tab active" id="loginModeButton" data-auth-mode="login">登录</button>
+                <button type="button" class="auth-tab" id="registerModeButton" data-auth-mode="register">注册</button>
+              </div>
+              <label>
+                <span>成员账号</span>
+                <input id="accountInput" name="account" autocomplete="username" placeholder="成员账号" required>
+              </label>
+              <label>
+                <span>密码</span>
+                <input id="passwordInput" name="password" type="password" autocomplete="current-password" placeholder="成员密码" required>
+              </label>
+              <label id="confirmPasswordLabel" hidden>
+                <span>确认密码</span>
+                <input id="confirmPasswordInput" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码">
+              </label>
+              <button class="primary" id="authSubmitButton" type="submit">登录</button>
+              <div class="auth-hint" id="authHint">登录后显示本组织的设备。</div>
+            </form>
+            <div class="member-info is-hidden" id="memberInfoPanel">
+              <div id="memberIdentity"></div>
+              <button type="button" class="danger" id="logoutButton">退出登录</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel collapsible-panel device-panel" data-section="device">
+          <div class="collapsible-header with-actions">
+            <button type="button" class="section-toggle" data-toggle-section="device">
+              <span class="collapse-arrow">▾</span>
+              <span>设备</span>
+            </button>
             <div class="button-row">
               <button type="button" class="icon-button" id="refreshButton" title="刷新设备">↻</button>
               <button type="button" class="icon-button" id="localDebugButton" title="本机调试模式" disabled>◎</button>
@@ -53,10 +96,12 @@
               <button type="button" class="icon-button" id="disconnectButton" title="断开连接" disabled>×</button>
             </div>
           </div>
-          <div class="device-list" id="deviceList">
-            <div class="empty-list">登录后显示设备</div>
+          <div class="collapsible-body">
+            <div class="device-list" id="deviceList">
+              <div class="empty-list">登录后显示设备</div>
+            </div>
           </div>
-        </div>
+        </section>
       </aside>
 
       <section class="workspace" id="workspace">
@@ -91,7 +136,7 @@
             <video id="webrtcVideo" autoplay playsinline muted></video>
             <div class="remote-cursor" id="remoteCursor"></div>
           </div>
-          <div class="empty-screen" id="emptyScreen">选择一台在线设备</div>
+          <div class="empty-screen" id="emptyScreen">选择一台在线设备发起连接</div>
         </div>
 
         <div class="keyboard-panel" id="keyboardPanel" hidden>
@@ -126,6 +171,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=20260427-org-members"></script>
+  <script src="/app.js?v=20260428-webrtc-ice3"></script>
 </body>
 </html>

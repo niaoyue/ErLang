@@ -1,42 +1,65 @@
-using System.Text.Json;
 using System.Windows.Forms;
-using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace OwnDesk.Client;
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
-    private const int SettingsPanelWidth = 520;
-    private static readonly Color AppBackground = Color.FromArgb(244, 246, 243);
+    private const int SettingsPanelWidth = 340;
+    private const int SettingsPanelMinWidth = 300;
+    private const int SettingsCollapsedWidth = 52;
+    private const int ViewerPanelMinWidth = 620;
+    private static readonly Color AppBackground = Color.FromArgb(248, 248, 249);
     private static readonly Color SurfaceColor = Color.White;
-    private static readonly Color SurfaceMutedColor = Color.FromArgb(237, 241, 236);
-    private static readonly Color LineColor = Color.FromArgb(217, 223, 215);
-    private static readonly Color TextColor = Color.FromArgb(32, 36, 33);
-    private static readonly Color MutedTextColor = Color.FromArgb(102, 112, 103);
-    private static readonly Color AccentColor = Color.FromArgb(32, 119, 102);
-    private static readonly Color AccentStrongColor = Color.FromArgb(23, 92, 80);
-    private static readonly Color DangerColor = Color.FromArgb(182, 66, 60);
+    private static readonly Color SurfaceMutedColor = Color.FromArgb(246, 246, 247);
+    private static readonly Color LineColor = Color.FromArgb(228, 228, 231);
+    private static readonly Color TextColor = Color.FromArgb(24, 24, 27);
+    private static readonly Color MutedTextColor = Color.FromArgb(82, 82, 91);
+    private static readonly Color AccentColor = Color.FromArgb(63, 63, 70);
+    private static readonly Color DangerColor = Color.FromArgb(220, 38, 38);
 
     private readonly AgentRunner _agentRunner = new();
+    private readonly MemberAuthClient _authClient = new();
+    private readonly RoundedSelectBox _organizationSelect = new();
+    private readonly TextBox _organizationNameInput = new();
     private readonly TextBox _serverInput = new();
-    private readonly TextBox _accountInput = new();
     private readonly TextBox _tokenInput = new();
+    private readonly Button _addOrganizationButton = new RoundedButton();
+    private readonly Button _saveOrganizationButton = new RoundedButton();
+    private readonly Button _deleteOrganizationButton = new RoundedButton();
+    private readonly Button _loginModeButton = new RoundedButton();
+    private readonly Button _registerModeButton = new RoundedButton();
+    private readonly Button _authSubmitButton = new RoundedButton();
+    private readonly Button _logoutButton = new RoundedButton();
+    private readonly TextBox _accountInput = new();
     private readonly TextBox _passwordInput = new();
+    private readonly Label _confirmPasswordLabel = new();
+    private readonly TextBox _confirmPasswordInput = new();
+    private RoundedInputHost? _confirmPasswordHost;
+    private readonly TableLayoutPanel _authFieldsPanel = new();
+    private readonly TableLayoutPanel _memberPanel = new();
+    private readonly Label _identityStatus = new();
     private readonly TextBox _deviceIdInput = new();
     private readonly TextBox _deviceNameInput = new();
     private readonly CheckBox _startOnLaunchInput = new();
     private readonly CheckBox _webRtcInput = new();
-    private readonly Button _connectionSettingsButton = new();
-    private readonly Button _saveButton = new();
-    private readonly Button _startAgentButton = new();
-    private readonly Button _stopAgentButton = new();
-    private readonly Button _openViewerButton = new();
+    private readonly Button _startAgentButton = new RoundedButton();
+    private readonly Button _stopAgentButton = new RoundedButton();
+    private readonly Button _openViewerButton = new RoundedButton();
+    private readonly Button _collapseSettingsButton = new RoundedButton();
+    private readonly Button _expandSettingsButton = new RoundedButton();
     private readonly Label _agentStatus = new();
     private readonly Label _viewerStatus = new();
     private readonly TextBox _logOutput = new();
     private readonly WebView2 _webView = new();
+    private SplitContainer? _rootSplit;
+    private Control? _settingsContentPanel;
+    private Control? _settingsCollapsedRail;
     private bool _allowClose;
+    private bool _hostFullscreen;
+    private bool _isBinding;
+    private bool _registerMode;
+    private bool _settingsCollapsed;
     private ClientSettings _settings;
 
     public MainForm()
@@ -44,21 +67,23 @@ internal sealed class MainForm : Form
         _settings = ClientSettings.Load().Normalize();
 
         Text = "OwnDesk Client";
-        Width = 1360;
-        Height = 860;
-        MinimumSize = new Size(1240, 720);
+        Width = 1320;
+        Height = 840;
+        MinimumSize = new Size(1040, 680);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = AppBackground;
-        Font = new Font("Segoe UI", 9F);
+        Font = new Font("Microsoft YaHei UI", 9F);
+        KeyPreview = true;
 
         BuildLayout();
-        BindSettings(_settings);
+        BindSettings();
         SetAgentRunning(false);
 
         _agentRunner.StatusChanged += (_, status) => PostStatus(status);
         _agentRunner.RunningChanged += (_, running) => PostAgentRunning(running);
         Shown += OnShownAsync;
         FormClosing += OnFormClosingAsync;
+        KeyDown += OnMainFormKeyDown;
     }
 
     protected override void Dispose(bool disposing)
@@ -74,443 +99,206 @@ internal sealed class MainForm : Form
 
     private void BuildLayout()
     {
-        var root = new SplitContainer
+        _rootSplit = new SplitContainer
         {
             Dock = DockStyle.Fill,
-            SplitterDistance = SettingsPanelWidth,
             SplitterWidth = 8,
             FixedPanel = FixedPanel.Panel1,
-            Panel1MinSize = 430,
-            Panel2MinSize = 640,
             BackColor = LineColor
         };
 
-        root.Panel1.BackColor = AppBackground;
-        root.Panel2.BackColor = AppBackground;
-        root.Panel1.Controls.Add(BuildSettingsPanel());
-        root.Panel2.Controls.Add(_webView);
+        _rootSplit.Layout += (_, _) => ApplySplitLayout();
+        _rootSplit.Panel1.BackColor = AppBackground;
+        _rootSplit.Panel2.BackColor = AppBackground;
+        _rootSplit.Panel1.Controls.Add(BuildSettingsShell());
+        _rootSplit.Panel2.Controls.Add(_webView);
         _webView.Dock = DockStyle.Fill;
 
-        Controls.Add(root);
+        Controls.Add(_rootSplit);
+        ApplySplitLayout();
     }
 
-    private Control BuildSettingsPanel()
+    private void ApplySplitLayout()
     {
-        var panel = new TableLayoutPanel
+        if (_rootSplit is null || _hostFullscreen)
         {
-            Dock = DockStyle.Fill,
-            ColumnCount = 1,
-            RowCount = 7,
-            Padding = new Padding(18),
-            BackColor = AppBackground
-        };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            return;
+        }
 
-        var title = new Label
+        var width = _rootSplit.Width;
+        var splitterWidth = Math.Max(1, _rootSplit.SplitterWidth);
+        var usableWidth = width - splitterWidth;
+        if (usableWidth <= 2)
         {
-            AutoSize = true,
-            Font = new Font(Font.FontFamily, 16F, FontStyle.Bold),
-            ForeColor = TextColor,
-            Text = "设备与成员",
-            Margin = new Padding(0, 0, 0, 2)
-        };
-        panel.Controls.Add(title);
+            return;
+        }
 
-        var subtitle = new Label
+        var desiredPanel1Min = _settingsCollapsed ? SettingsCollapsedWidth : SettingsPanelMinWidth;
+        var panel1Min = Math.Min(desiredPanel1Min, Math.Max(1, usableWidth / 2));
+        var panel2Min = Math.Min(ViewerPanelMinWidth, Math.Max(1, usableWidth - panel1Min));
+        if (panel1Min + panel2Min > usableWidth)
         {
-            AutoSize = true,
-            ForeColor = MutedTextColor,
-            Margin = new Padding(0, 0, 0, 2),
-            MaximumSize = new Size(SettingsPanelWidth - 42, 0),
-            Text = "组织 Token 用于识别部署；账号和密码用于成员登录。"
-        };
-        panel.Controls.Add(subtitle);
+            panel2Min = Math.Max(1, usableWidth - panel1Min);
+        }
 
-        var form = new TableLayoutPanel
+        var minDistance = panel1Min;
+        var maxDistance = Math.Max(minDistance, width - splitterWidth - panel2Min);
+        var preferredDistance = _settingsCollapsed ? SettingsCollapsedWidth : SettingsPanelWidth;
+        var distance = Math.Clamp(preferredDistance, minDistance, maxDistance);
+
+        _rootSplit.Panel1MinSize = 0;
+        _rootSplit.Panel2MinSize = 0;
+        if (_rootSplit.SplitterDistance != distance)
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
-            Padding = new Padding(0, 14, 0, 10),
-            BackColor = AppBackground
-        };
+            _rootSplit.SplitterDistance = distance;
+        }
 
-        AddField(form, "组织 Token", _tokenInput);
-        AddField(form, "成员账号", _accountInput);
-        AddField(form, "成员密码", _passwordInput);
-        AddField(form, "设备 ID", _deviceIdInput);
-        AddField(form, "设备名称", _deviceNameInput);
+        _rootSplit.Panel1MinSize = panel1Min;
+        _rootSplit.Panel2MinSize = panel2Min;
 
-        _tokenInput.UseSystemPasswordChar = true;
-        _passwordInput.UseSystemPasswordChar = true;
-
-        _startOnLaunchInput.Text = "启动客户端时自动上线本机";
-        _startOnLaunchInput.AutoSize = true;
-        _webRtcInput.Text = "启用 WebRTC 实验视频";
-        _webRtcInput.AutoSize = true;
-        form.Controls.Add(_startOnLaunchInput);
-        form.Controls.Add(_webRtcInput);
-
-        panel.Controls.Add(form);
-
-        var connectionPanel = new Panel
+        if (_settingsCollapsed)
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            Visible = false,
-            BackColor = AppBackground,
-            Padding = new Padding(0, 0, 0, 8)
-        };
-        var connectionForm = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
-            BackColor = AppBackground
-        };
-        AddField(connectionForm, "连接地址", _serverInput);
-        connectionPanel.Controls.Add(connectionForm);
+            return;
+        }
+    }
 
-        var buttons = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            WrapContents = true,
-            BackColor = AppBackground,
-            Margin = new Padding(0, 0, 0, 8)
-        };
+    private Control BuildOrganizationPanel()
+    {
+        var panel = CreateSection();
+        ConfigureComboBox(_organizationSelect);
+        _organizationSelect.SelectedIndexChanged += (_, _) => _ = RunUiActionAsync(SwitchOrganizationAsync);
+        panel.Controls.Add(_organizationSelect);
 
-        ConfigureButton(_connectionSettingsButton, "连接设置", (_, _) =>
-        {
-            connectionPanel.Visible = !connectionPanel.Visible;
-            _connectionSettingsButton.Text = connectionPanel.Visible ? "隐藏连接设置" : "连接设置";
-        });
-        ConfigureButton(_saveButton, "保存", async (_, _) => await SaveSettingsAsync());
-        ConfigureButton(_startAgentButton, "上线本机", async (_, _) => await StartAgentAsync(), primary: true);
-        ConfigureButton(_stopAgentButton, "停止上线", async (_, _) => await StopAgentAsync(), danger: true);
-        ConfigureButton(_openViewerButton, "打开控制台", async (_, _) => await NavigateViewerAsync(autoLogin: true));
-
-        buttons.Controls.AddRange([_connectionSettingsButton, _saveButton, _startAgentButton, _stopAgentButton, _openViewerButton]);
+        var buttons = CreateButtonGrid(3);
+        ConfigureButton(_addOrganizationButton, "新增", (_, _) => _ = RunUiActionAsync(AddOrganizationAsync));
+        ConfigureButton(_saveOrganizationButton, "保存组织", (_, _) => SaveCurrentOrganization(rebind: true));
+        ConfigureButton(_deleteOrganizationButton, "删除", (_, _) => _ = RunUiActionAsync(DeleteOrganizationAsync), danger: true);
+        AddGridButton(buttons, _addOrganizationButton, 0);
+        AddGridButton(buttons, _saveOrganizationButton, 1);
+        AddGridButton(buttons, _deleteOrganizationButton, 2);
         panel.Controls.Add(buttons);
-        panel.Controls.Add(connectionPanel);
 
-        _logOutput.Dock = DockStyle.Fill;
+        ConfigureTextBox(_organizationNameInput, "组织名称");
+        ConfigureTextBox(_serverInput, "例如 http://127.0.0.1:5080");
+        ConfigureTextBox(_tokenInput, "组织 Token");
+        _tokenInput.UseSystemPasswordChar = true;
+        AddField(panel, "组织名称", _organizationNameInput);
+        AddField(panel, "服务器 URL", _serverInput);
+        AddField(panel, "组织 Token", _tokenInput);
+        return panel;
+    }
+
+    private Control BuildAuthPanel()
+    {
+        var panel = CreateSection();
+        var tabs = CreateButtonRow();
+        ConfigureButton(_loginModeButton, "登录", (_, _) => SetAuthMode(registerMode: false));
+        ConfigureButton(_registerModeButton, "注册", (_, _) => SetAuthMode(registerMode: true));
+        tabs.Controls.AddRange([_loginModeButton, _registerModeButton]);
+        panel.Controls.Add(tabs);
+
+        ConfigureAuthFields();
+        panel.Controls.Add(_authFieldsPanel);
+
+        _memberPanel.Dock = DockStyle.Top;
+        _memberPanel.AutoSize = true;
+        _memberPanel.ColumnCount = 1;
+        _memberPanel.BackColor = SurfaceColor;
+        _identityStatus.AutoSize = true;
+        _identityStatus.ForeColor = TextColor;
+        _identityStatus.MaximumSize = new Size(SettingsPanelWidth - 48, 0);
+        _memberPanel.Controls.Add(_identityStatus);
+        ConfigureButton(_logoutButton, "退出登录", (_, _) => _ = RunUiActionAsync(LogoutAsync), danger: true);
+        _memberPanel.Controls.Add(_logoutButton);
+        panel.Controls.Add(_memberPanel);
+        return panel;
+    }
+
+    private Control BuildDevicePanel()
+    {
+        var panel = CreateSection();
+        ConfigureTextBox(_deviceIdInput, Environment.MachineName);
+        ConfigureTextBox(_deviceNameInput, Environment.MachineName);
+        AddField(panel, "设备 ID", _deviceIdInput);
+        AddField(panel, "设备名称", _deviceNameInput);
+
+        _startOnLaunchInput.Text = "启动时自动上线";
+        _startOnLaunchInput.AutoSize = true;
+        _startOnLaunchInput.BackColor = SurfaceColor;
+        _webRtcInput.Text = "启用 WebRTC";
+        _webRtcInput.AutoSize = true;
+        _webRtcInput.BackColor = SurfaceColor;
+        panel.Controls.Add(_startOnLaunchInput);
+        panel.Controls.Add(_webRtcInput);
+
+        var buttons = CreateButtonGrid(3);
+        ConfigureButton(_startAgentButton, "上线本机", (_, _) => _ = RunUiActionAsync(StartAgentAsync), primary: true);
+        ConfigureButton(_stopAgentButton, "停止", (_, _) => _ = RunUiActionAsync(StopAgentAsync), danger: true);
+        ConfigureButton(_openViewerButton, "打开控制台", (_, _) => _ = RunUiActionAsync(OpenViewerAsync));
+        AddGridButton(buttons, _startAgentButton, 0);
+        AddGridButton(buttons, _stopAgentButton, 1);
+        AddGridButton(buttons, _openViewerButton, 2);
+        panel.Controls.Add(buttons);
+        return panel;
+    }
+
+    private Control BuildLogPanel()
+    {
+        var panel = CreateSection();
+        _logOutput.Dock = DockStyle.Top;
         _logOutput.Multiline = true;
         _logOutput.ReadOnly = true;
         _logOutput.ScrollBars = ScrollBars.Vertical;
         _logOutput.BorderStyle = BorderStyle.FixedSingle;
         _logOutput.BackColor = SurfaceColor;
         _logOutput.ForeColor = TextColor;
-        _logOutput.Margin = new Padding(0, 4, 0, 10);
+        _logOutput.Height = 84;
         panel.Controls.Add(_logOutput);
+        panel.Controls.Add(BuildStatusPanel());
+        return panel;
+    }
 
+    private Control BuildStatusPanel()
+    {
         var statusPanel = new TableLayoutPanel
         {
-            Dock = DockStyle.Bottom,
+            Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 1,
-            BackColor = AppBackground
+            BackColor = SurfaceColor,
+            Padding = new Padding(0, 6, 0, 0)
         };
-
         _agentStatus.AutoSize = true;
         _viewerStatus.AutoSize = true;
         _agentStatus.ForeColor = MutedTextColor;
         _viewerStatus.ForeColor = MutedTextColor;
         statusPanel.Controls.Add(_agentStatus);
         statusPanel.Controls.Add(_viewerStatus);
-        panel.Controls.Add(statusPanel);
-
-        return panel;
+        return statusPanel;
     }
 
-    private static void AddField(TableLayoutPanel form, string labelText, TextBox input)
+    private void ConfigureAuthFields()
     {
-        var label = new Label
-        {
-            Text = labelText,
-            AutoSize = true,
-            ForeColor = MutedTextColor,
-            Margin = new Padding(0, 8, 0, 4)
-        };
-
-        input.Dock = DockStyle.Top;
-        input.AutoSize = false;
-        input.Height = 34;
-        input.BorderStyle = BorderStyle.FixedSingle;
-        input.BackColor = SurfaceColor;
-        input.ForeColor = TextColor;
-        input.Margin = new Padding(0, 0, 0, 4);
-
-        form.Controls.Add(label);
-        form.Controls.Add(input);
+        _authFieldsPanel.Dock = DockStyle.Top;
+        _authFieldsPanel.AutoSize = true;
+        _authFieldsPanel.ColumnCount = 1;
+        _authFieldsPanel.BackColor = SurfaceColor;
+        ConfigureTextBox(_accountInput, "成员账号");
+        ConfigureTextBox(_passwordInput, "成员密码");
+        ConfigureTextBox(_confirmPasswordInput, "再次输入密码");
+        _passwordInput.UseSystemPasswordChar = true;
+        _confirmPasswordInput.UseSystemPasswordChar = true;
+        AddField(_authFieldsPanel, "成员账号", _accountInput);
+        AddField(_authFieldsPanel, "密码", _passwordInput);
+        _confirmPasswordLabel.Text = "确认密码";
+        _confirmPasswordLabel.AutoSize = true;
+        _confirmPasswordLabel.ForeColor = MutedTextColor;
+        _confirmPasswordLabel.Margin = new Padding(0, 5, 0, 2);
+        _authFieldsPanel.Controls.Add(_confirmPasswordLabel);
+        _confirmPasswordHost = new RoundedInputHost(_confirmPasswordInput, Color.FromArgb(252, 252, 253), LineColor, AccentColor);
+        _authFieldsPanel.Controls.Add(_confirmPasswordHost);
+        ConfigureButton(_authSubmitButton, "登录", (_, _) => _ = RunUiActionAsync(AuthenticateAsync), primary: true);
+        _authFieldsPanel.Controls.Add(_authSubmitButton);
     }
 
-    private static void ConfigureButton(Button button, string text, EventHandler handler, bool primary = false, bool danger = false)
-    {
-        button.Text = text;
-        button.AutoSize = true;
-        button.Height = 34;
-        button.Padding = new Padding(12, 0, 12, 0);
-        button.Margin = new Padding(0, 0, 8, 8);
-        button.FlatStyle = FlatStyle.Flat;
-        button.UseVisualStyleBackColor = false;
-        button.FlatAppearance.BorderSize = 1;
-        if (primary)
-        {
-            button.BackColor = AccentColor;
-            button.ForeColor = Color.White;
-            button.FlatAppearance.BorderColor = AccentColor;
-        }
-        else if (danger)
-        {
-            button.BackColor = Color.FromArgb(252, 241, 240);
-            button.ForeColor = DangerColor;
-            button.FlatAppearance.BorderColor = Color.FromArgb(230, 188, 185);
-        }
-        else
-        {
-            button.BackColor = SurfaceMutedColor;
-            button.ForeColor = primary ? Color.White : TextColor;
-            button.FlatAppearance.BorderColor = LineColor;
-        }
-
-        button.Click += handler;
-    }
-
-    private void BindSettings(ClientSettings settings)
-    {
-        _serverInput.Text = settings.Server;
-        _accountInput.Text = settings.Account;
-        _tokenInput.Text = settings.Token;
-        _passwordInput.Text = settings.Password;
-        _deviceIdInput.Text = settings.DeviceId;
-        _deviceNameInput.Text = settings.DeviceName;
-        _startOnLaunchInput.Checked = settings.StartAgentOnLaunch;
-        _webRtcInput.Checked = settings.EnableWebRtc;
-    }
-
-    private ClientSettings ReadSettings()
-    {
-        return new ClientSettings
-        {
-            Server = _serverInput.Text,
-            Account = _accountInput.Text,
-            Token = _tokenInput.Text,
-            Password = _passwordInput.Text,
-            DeviceId = _deviceIdInput.Text,
-            DeviceName = _deviceNameInput.Text,
-            StartAgentOnLaunch = _startOnLaunchInput.Checked,
-            EnableWebRtc = _webRtcInput.Checked
-        }.Normalize();
-    }
-
-    private async void OnShownAsync(object? sender, EventArgs eventArgs)
-    {
-        try
-        {
-            await _webView.EnsureCoreWebView2Async();
-            _viewerStatus.Text = "控制台：已就绪";
-            await NavigateViewerAsync(autoLogin: false);
-        }
-        catch (Exception ex)
-        {
-            _viewerStatus.Text = "控制台：不可用";
-            AppendLog($"WebView2 failed: {ex.Message}");
-        }
-
-        if (_settings.StartAgentOnLaunch &&
-            !string.IsNullOrWhiteSpace(_settings.Token) &&
-            !string.IsNullOrWhiteSpace(_settings.Account) &&
-            !string.IsNullOrWhiteSpace(_settings.Password))
-        {
-            await StartAgentAsync();
-            await NavigateViewerAsync(autoLogin: true);
-        }
-    }
-
-    private async void OnFormClosingAsync(object? sender, FormClosingEventArgs eventArgs)
-    {
-        if (_allowClose)
-        {
-            return;
-        }
-
-        eventArgs.Cancel = true;
-        _allowClose = true;
-        Enabled = false;
-
-        try
-        {
-            await _agentRunner.StopAsync();
-        }
-        finally
-        {
-            Close();
-        }
-    }
-
-    private Task SaveSettingsAsync()
-    {
-        _settings = ReadSettings();
-        _settings.Save();
-        AppendLog($"Settings saved to {ClientSettings.SettingsPath}");
-        return Task.CompletedTask;
-    }
-
-    private async Task StartAgentAsync()
-    {
-        try
-        {
-            _settings = ReadSettings();
-            _settings.Save();
-            await _agentRunner.StartAsync(_settings);
-            SetAgentRunning(true);
-            AppendLog($"Local agent started as {_settings.DeviceName} ({_settings.DeviceId})");
-        }
-        catch (Exception ex)
-        {
-            SetAgentRunning(false);
-            AppendLog($"Start failed: {ex.Message}");
-            MessageBox.Show(this, ex.Message, "OwnDesk Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
-    }
-
-    private async Task StopAgentAsync()
-    {
-        await _agentRunner.StopAsync();
-        SetAgentRunning(false);
-    }
-
-    private async Task NavigateViewerAsync(bool autoLogin)
-    {
-        _settings = ReadSettings();
-        if (autoLogin)
-        {
-            _settings.Save();
-        }
-
-        if (!Uri.TryCreate($"{_settings.Server}/index.html", UriKind.Absolute, out var uri))
-        {
-            _viewerStatus.Text = "连接地址无效";
-            return;
-        }
-
-        if (_webView.CoreWebView2 is null)
-        {
-            return;
-        }
-
-        TaskCompletionSource? navigation = null;
-
-        if (autoLogin)
-        {
-            navigation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void Handler(object? sender, CoreWebView2NavigationCompletedEventArgs args)
-            {
-                _webView.NavigationCompleted -= Handler;
-                navigation.TrySetResult();
-            }
-
-            _webView.NavigationCompleted += Handler;
-        }
-
-        _webView.Source = uri;
-        _viewerStatus.Text = "控制台：已打开";
-
-        if (navigation is not null)
-        {
-            await navigation.Task;
-            await AutoLoginViewerAsync();
-        }
-    }
-
-    private async Task AutoLoginViewerAsync()
-    {
-        if (_webView.CoreWebView2 is null ||
-            string.IsNullOrWhiteSpace(_settings.Token) ||
-            string.IsNullOrWhiteSpace(_settings.Account) ||
-            string.IsNullOrWhiteSpace(_settings.Password))
-        {
-            return;
-        }
-
-        var account = JsonSerializer.Serialize(_settings.Account);
-        var token = JsonSerializer.Serialize(_settings.Token);
-        var password = JsonSerializer.Serialize(_settings.Password);
-        var script = $$"""
-            (() => {
-              const account = document.getElementById("accountInput");
-              const token = document.getElementById("organizationTokenInput");
-              const password = document.getElementById("passwordInput");
-              const form = document.getElementById("loginForm");
-              if (!account || !token || !password || !form) {
-                return "missing-login-form";
-              }
-              account.value = {{account}};
-              token.value = {{token}};
-              password.value = {{password}};
-              if (typeof form.requestSubmit === "function") {
-                form.requestSubmit();
-              } else {
-                form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-              }
-              return "submitted";
-            })();
-            """;
-
-        await _webView.CoreWebView2.ExecuteScriptAsync(script);
-    }
-
-    private void SetAgentRunning(bool running)
-    {
-        _agentStatus.Text = running ? "本机上线：运行中" : "本机上线：已停止";
-        _startAgentButton.Enabled = !running;
-        _stopAgentButton.Enabled = running;
-    }
-
-    private void PostStatus(string status)
-    {
-        if (IsDisposed)
-        {
-            return;
-        }
-
-        if (InvokeRequired)
-        {
-            BeginInvoke(() => PostStatus(status));
-            return;
-        }
-
-        _agentStatus.Text = status;
-        AppendLog(status);
-    }
-
-    private void PostAgentRunning(bool running)
-    {
-        if (IsDisposed)
-        {
-            return;
-        }
-
-        if (InvokeRequired)
-        {
-            BeginInvoke((Action)(() => PostAgentRunning(running)));
-            return;
-        }
-
-        SetAgentRunning(running);
-    }
-
-    private void AppendLog(string message)
-    {
-        var line = $"{DateTimeOffset.Now:HH:mm:ss} {message}{Environment.NewLine}";
-        _logOutput.AppendText(line);
-    }
 }

@@ -1,4 +1,7 @@
+using System.Net.WebSockets;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using OwnDesk.Server;
 using OwnDesk.Shared;
 using OwnDesk.Shared.Messages;
 using OwnDesk.Shared.Security;
@@ -80,6 +83,64 @@ public sealed class ProtocolTests
         Assert.Equal("/base/ws/agent", uri.AbsolutePath);
         Assert.Contains("account=demo%20user", uri.Query, StringComparison.Ordinal);
         Assert.Contains("token=a%2Bb", uri.Query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DeviceRegistryKeepsOfflineDeviceUntilRemoved()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var registry = new DeviceRegistry(new JsonDeviceRecordStore(storePath));
+        var socket = new TestWebSocket();
+
+        var session = await registry.RegisterAgentAsync(
+            "org-1",
+            "pc-1",
+            "PC 1",
+            socket,
+            CancellationToken.None);
+        await registry.UpdateHelloAsync(session, "PC 1", 1920, 1080, CancellationToken.None);
+
+        var online = Assert.Single(registry.ListDevices("org-1"));
+        Assert.True(online.Online);
+        Assert.Equal("PC 1", online.DeviceName);
+
+        await registry.UnregisterAgentAsync(session, CancellationToken.None);
+
+        var offline = Assert.Single(registry.ListDevices("org-1"));
+        Assert.False(offline.Online);
+        Assert.Equal(1920, offline.ScreenWidth);
+
+        var restarted = new DeviceRegistry(new JsonDeviceRecordStore(storePath));
+        var persisted = Assert.Single(restarted.ListDevices("org-1"));
+        Assert.False(persisted.Online);
+
+        Assert.True(await restarted.RemoveDeviceAsync("org-1", "pc-1", CancellationToken.None));
+        Assert.Empty(restarted.ListDevices("org-1"));
+    }
+
+    [Fact]
+    public async Task DeviceRegistryNotifiesWatchersWhenAgentRequestIsCanceled()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        var registry = new DeviceRegistry(new JsonDeviceRecordStore(storePath));
+        var watcherSocket = new RecordingWebSocket();
+        registry.AddWatcher("org-1", watcherSocket);
+
+        var session = await registry.RegisterAgentAsync(
+            "org-1",
+            "pc-1",
+            "PC 1",
+            new TestWebSocket(),
+            CancellationToken.None);
+        var onlineNotifications = watcherSocket.SentText.Count;
+
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+
+        await registry.UnregisterAgentAsync(session, canceled.Token);
+
+        Assert.True(watcherSocket.SentText.Count > onlineNotifications);
+        Assert.Contains(watcherSocket.SentText, text => text.Contains(OwnDeskMessageTypes.DeviceListChanged, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -238,5 +299,130 @@ public sealed class ProtocolTests
         Assert.Equal("libvpx-vp8-software", parsed.EncoderName);
         Assert.Equal(1200, parsed.TargetKbps);
         Assert.True(parsed.Notes.SequenceEqual(["Auto currently selects VP8."]));
+    }
+
+    [Fact]
+    public void WebRtcConfigMessageJsonRoundTrip()
+    {
+        var config = new WebRtcConfigDto
+        {
+            IceServers =
+            [
+                new WebRtcIceServerDto
+                {
+                    Urls = ["stun:stun.example.com:3478"],
+                    Username = "user",
+                    Credential = "pass",
+                    CredentialType = "password"
+                }
+            ]
+        };
+
+        var json = JsonSerializer.Serialize(config, JsonDefaults.Options);
+        var parsed = JsonSerializer.Deserialize<WebRtcConfigDto>(json, JsonDefaults.Options);
+
+        Assert.NotNull(parsed);
+        var server = Assert.Single(parsed.IceServers);
+        Assert.Equal("stun:stun.example.com:3478", Assert.Single(server.Urls));
+        Assert.Equal("user", server.Username);
+        Assert.Equal("pass", server.Credential);
+        Assert.Equal("password", server.CredentialType);
+    }
+
+    [Fact]
+    public void WebRtcConfigProviderReadsIceServers()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["OwnDesk:IceServers:0:Urls:0"] = "stun:stun.example.com:3478",
+                ["OwnDesk:IceServers:1:Urls:0"] = "turn:turn.example.com:3478?transport=udp",
+                ["OwnDesk:IceServers:1:Username"] = "turn-user",
+                ["OwnDesk:IceServers:1:Credential"] = "turn-pass"
+            })
+            .Build();
+
+        var config = new WebRtcConfigProvider(configuration).GetConfig();
+
+        Assert.Equal(2, config.IceServers.Length);
+        Assert.Equal("stun:stun.example.com:3478", Assert.Single(config.IceServers[0].Urls));
+        Assert.Equal("turn-user", config.IceServers[1].Username);
+        Assert.Equal("turn-pass", config.IceServers[1].Credential);
+    }
+
+    private class TestWebSocket : WebSocket
+    {
+        private WebSocketState _state = WebSocketState.Open;
+
+        public override WebSocketCloseStatus? CloseStatus => null;
+
+        public override string? CloseStatusDescription => null;
+
+        public override WebSocketState State => _state;
+
+        public override string? SubProtocol => null;
+
+        public override void Abort()
+        {
+            _state = WebSocketState.Aborted;
+        }
+
+        public override Task CloseAsync(
+            WebSocketCloseStatus closeStatus,
+            string? statusDescription,
+            CancellationToken cancellationToken)
+        {
+            _state = WebSocketState.Closed;
+            return Task.CompletedTask;
+        }
+
+        public override Task CloseOutputAsync(
+            WebSocketCloseStatus closeStatus,
+            string? statusDescription,
+            CancellationToken cancellationToken)
+        {
+            _state = WebSocketState.CloseSent;
+            return Task.CompletedTask;
+        }
+
+        public override void Dispose()
+        {
+            _state = WebSocketState.Closed;
+        }
+
+        public override Task<WebSocketReceiveResult> ReceiveAsync(
+            ArraySegment<byte> buffer,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
+        }
+
+        public override Task SendAsync(
+            ArraySegment<byte> buffer,
+            WebSocketMessageType messageType,
+            bool endOfMessage,
+            CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingWebSocket : TestWebSocket
+    {
+        public List<string> SentText { get; } = [];
+
+        public override Task SendAsync(
+            ArraySegment<byte> buffer,
+            WebSocketMessageType messageType,
+            bool endOfMessage,
+            CancellationToken cancellationToken)
+        {
+            if (messageType == WebSocketMessageType.Text)
+            {
+                SentText.Add(System.Text.Encoding.UTF8.GetString(buffer.Array!, buffer.Offset, buffer.Count));
+            }
+
+            return Task.CompletedTask;
+        }
     }
 }

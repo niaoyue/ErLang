@@ -10,16 +10,12 @@ internal sealed class RemoteAgent
 {
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(5);
     private const int MaxControlMessageBytes = 256 * 1024;
-    private const int MaxTextInputChars = 1024;
-    private const int MaxTextInputCharsPerWindow = 4096;
-    private static readonly TimeSpan TextInputWindow = TimeSpan.FromSeconds(5);
 
     private readonly AgentOptions _options;
     private readonly ScreenCaptureService _screenCapture;
     private readonly InputController _inputController;
     private readonly StreamQualityController _qualityController;
-    private readonly Queue<(DateTimeOffset At, int Count)> _recentTextInputs = new();
-    private readonly object _inputRateGate = new();
+    private readonly RemoteControlHandler _controlHandler;
 
     public RemoteAgent(
         AgentOptions options,
@@ -31,6 +27,7 @@ internal sealed class RemoteAgent
         _screenCapture = screenCapture;
         _inputController = inputController;
         _qualityController = qualityController;
+        _controlHandler = new RemoteControlHandler(inputController, qualityController);
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -42,7 +39,13 @@ internal sealed class RemoteAgent
             return;
         }
 
-        var webRtcTask = new WebRtcAgentSignalingClient(_options, _screenCapture, _qualityController).RunAsync(cancellationToken);
+        var iceServers = await WebRtcIceConfigClient.FetchAsync(_options, cancellationToken);
+        var webRtcTask = new WebRtcAgentSignalingClient(
+            _options,
+            _screenCapture,
+            _qualityController,
+            _controlHandler,
+            iceServers).RunAsync(cancellationToken);
         await Task.WhenAll(relayTask, webRtcTask);
     }
 
@@ -55,6 +58,10 @@ internal sealed class RemoteAgent
                 await RunConnectionAsync(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception) when (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
@@ -155,30 +162,7 @@ internal sealed class RemoteAgent
                 break;
             }
 
-            using var document = JsonDocument.Parse(text);
-            if (!document.RootElement.TryGetProperty("type", out var typeElement))
-            {
-                continue;
-            }
-
-            var type = typeElement.GetString();
-            if (type == OwnDeskMessageTypes.Input)
-            {
-                var command = JsonSerializer.Deserialize<InputCommand>(text, JsonDefaults.Options);
-                if (command is not null && IsAllowedInput(command))
-                {
-                    _inputController.Apply(command);
-                }
-            }
-            else if (type == OwnDeskMessageTypes.StreamQuality)
-            {
-                var message = JsonSerializer.Deserialize<StreamQualityMessage>(text, JsonDefaults.Options);
-                if (message is not null && _qualityController.TryApplyProfile(message.Profile, out var settings))
-                {
-                    Console.WriteLine(
-                        $"Stream quality changed: {settings.Profile} {settings.FramesPerSecond}fps JPEG={settings.JpegQuality} max={settings.MaxWidth}x{settings.MaxHeight} WebRTC={settings.WebRtcBitrateKbps}kbps");
-                }
-            }
+            _controlHandler.HandleJson(text);
         }
     }
 
@@ -197,48 +181,6 @@ internal sealed class RemoteAgent
                 },
                 JsonDefaults.Options),
             cancellationToken);
-    }
-
-    private bool IsAllowedInput(InputCommand command)
-    {
-        return command.Event switch
-        {
-            "mouseMove" or "mouseDown" or "mouseUp" or "mouseClick" or "wheel" => HasFiniteCoordinates(command),
-            "keyDown" or "keyUp" => command.KeyCode is >= 0 and <= 255,
-            "text" => IsAllowedTextInput(command.Text),
-            _ => false
-        };
-    }
-
-    private static bool HasFiniteCoordinates(InputCommand command)
-    {
-        return double.IsFinite(command.X) && double.IsFinite(command.Y);
-    }
-
-    private bool IsAllowedTextInput(string? text)
-    {
-        if (string.IsNullOrEmpty(text) || text.Length > MaxTextInputChars)
-        {
-            return false;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        lock (_inputRateGate)
-        {
-            while (_recentTextInputs.Count > 0 && now - _recentTextInputs.Peek().At > TextInputWindow)
-            {
-                _recentTextInputs.Dequeue();
-            }
-
-            var current = _recentTextInputs.Sum(item => item.Count);
-            if (current + text.Length > MaxTextInputCharsPerWindow)
-            {
-                return false;
-            }
-
-            _recentTextInputs.Enqueue((now, text.Length));
-            return true;
-        }
     }
 
     private static async Task ObserveAsync(Task task)

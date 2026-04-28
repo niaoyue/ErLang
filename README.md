@@ -83,17 +83,26 @@ OwnDesk.Client  -> Windows 一体化客户端，自动让本机上线，也能�
 dotnet run --project src\OwnDesk.Client\OwnDesk.Client.csproj
 ```
 
-首次打开后填写：
+首次打开后先配置组织，再注册或登录成员。组织是最上层连接目标，由服务器地址和组织 Token 组成；成员登录/注册只需要账号和密码，组织 Token 不再出现在成员表单里。
+
+组织字段：
 
 | 字段 | 示例 | 说明 |
 | --- | --- | --- |
+| `组织名称` | `个人服务器` | 本机保存的显示名称，用于多组织切换 |
+| `服务器 URL` | `https://YOUR_HTTPS_DOMAIN` | Server 地址；本地开发可用 `http://127.0.0.1:5080`，默认留空 |
 | `组织 Token` | `replace-with-a-long-random-token` | 与 Server 的 `OWNDESK_TOKEN` 一致，用于识别组织 |
+
+成员字段：
+
+| 字段 | 示例 | 说明 |
+| --- | --- | --- |
 | `成员账号` | `me` | 已注册的成员账号 |
 | `成员密码` | `replace-with-member-password` | 成员登录密码 |
 | `设备 ID` | `pc-1` | 组织下唯一设备 ID，默认当前机器名 |
 | `设备名称` | `pc-1` | 界面显示名称，默认当前机器名 |
 
-Server 地址放在 `连接设置` 中，避免在主要 UI 上暴露具体部署地址。点 `上线本机` 后，这台 Windows 电脑会注册为在线设备；右侧内嵌 WebView2 Viewer 会打开 Server 控制台并自动填入组织 Token、账号和密码。也可以勾选 `启动客户端时自动上线本机`，下次启动 Client 时自动上线本机。
+Client 可以保存多个组织并切换。切换到已登录且保存了账号密码的组织时，会自动尝试登录；登录成功后左侧成员区域会切换为组织和成员信息，并提供 `退出登录`。点 `上线本机` 后，这台 Windows 电脑会注册为设备；勾选 `启动时自动上线` 后，启动、登录或切换到已登录组织时会自动上线本机。右侧内嵌 WebView2 Viewer 会打开 Server 控制台并自动填入当前组织 Token、账号和密码。
 
 配置保存到：
 
@@ -101,7 +110,7 @@ Server 地址放在 `连接设置` 中，避免在主要 UI 上暴露具体部�
 %APPDATA%\OwnDesk\client-settings.json
 ```
 
-这个文件会保存组织 Token 和成员密码，应只放在自有受信任的 Windows 账号下使用。
+这个文件会保存组织列表、组织 Token 和成员密码，应只放在自有受信任的 Windows 账号下使用。
 
 发布 Windows x64 客户端：
 

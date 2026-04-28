@@ -23,6 +23,9 @@ var token = Environment.GetEnvironmentVariable("OWNDESK_TOKEN")
 var authStorePath = Environment.GetEnvironmentVariable("OWNDESK_AUTH_STORE")
                     ?? builder.Configuration["OwnDesk:AuthStorePath"]
                     ?? Path.Combine(AppContext.BaseDirectory, "owndesk-auth.json");
+var deviceStorePath = Environment.GetEnvironmentVariable("OWNDESK_DEVICE_STORE")
+                      ?? builder.Configuration["OwnDesk:DeviceStorePath"]
+                      ?? Path.Combine(AppContext.BaseDirectory, "owndesk-devices.json");
 
 if (string.IsNullOrWhiteSpace(token))
 {
@@ -33,7 +36,9 @@ if (string.IsNullOrWhiteSpace(token))
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 
 builder.Services.AddSingleton(new OrganizationAuthenticator(token, authStorePath));
+builder.Services.AddSingleton<IDeviceRecordStore>(new JsonDeviceRecordStore(deviceStorePath));
 builder.Services.AddSingleton<DeviceRegistry>();
+builder.Services.AddSingleton<WebRtcConfigProvider>();
 builder.Services.AddSingleton<WebSocketRelay>();
 builder.Services.AddSingleton<WebRtcSignalingRelay>();
 
@@ -128,13 +133,74 @@ app.MapPost("/api/devices", async (HttpContext context, OrganizationAuthenticato
         return Results.BadRequest();
     }
 
-    var member = auth is null ? null : authenticator.Authenticate(auth);
+    if (auth is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var member = authenticator.Authenticate(auth);
     if (member is null)
     {
         return Results.Unauthorized();
     }
 
     return Results.Ok(registry.ListDevices(member.OrganizationId));
+});
+
+app.MapPost("/api/devices/remove", async (HttpContext context, OrganizationAuthenticator authenticator, DeviceRegistry registry) =>
+{
+    AuthMessage? auth;
+    try
+    {
+        auth = await JsonSerializer.DeserializeAsync<AuthMessage>(context.Request.Body, JsonDefaults.Options, context.RequestAborted);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest();
+    }
+
+    if (auth is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var member = authenticator.Authenticate(auth);
+    if (member is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var deviceIdToRemove = auth.DeviceId?.Trim();
+    if (string.IsNullOrWhiteSpace(deviceIdToRemove))
+    {
+        return Results.BadRequest(new ErrorMessage { Message = "Device id is required." });
+    }
+
+    await registry.RemoveDeviceAsync(member.OrganizationId, deviceIdToRemove, context.RequestAborted);
+    return Results.Ok(new { removed = true });
+});
+
+app.MapPost("/api/webrtc/config", async (
+    HttpContext context,
+    OrganizationAuthenticator authenticator,
+    WebRtcConfigProvider webRtcConfig) =>
+{
+    AuthMessage? auth;
+    try
+    {
+        auth = await JsonSerializer.DeserializeAsync<AuthMessage>(context.Request.Body, JsonDefaults.Options, context.RequestAborted);
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest();
+    }
+
+    if (auth is null || authenticator.Authenticate(auth) is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(webRtcConfig.GetConfig());
 });
 
 app.Map("/ws/agent", async context =>
@@ -184,6 +250,50 @@ app.Map("/ws/viewer", async context =>
 
     var relay = context.RequestServices.GetRequiredService<WebSocketRelay>();
     await relay.HandleViewerAsync(auth.Member.OrganizationId, deviceId, socket, context.RequestAborted);
+});
+
+app.Map("/ws/devices", async context =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        return;
+    }
+
+    using var socket = await context.WebSockets.AcceptWebSocketAsync();
+    var authenticator = context.RequestServices.GetRequiredService<OrganizationAuthenticator>();
+    var registry = context.RequestServices.GetRequiredService<DeviceRegistry>();
+    var auth = await ReceiveAuthAsync(socket, authenticator, context.RequestAborted);
+    if (auth is null)
+    {
+        socket.Abort();
+        return;
+    }
+
+    var watcher = registry.AddWatcher(auth.Member.OrganizationId, socket);
+    await registry.NotifyDeviceListChangedAsync(auth.Member.OrganizationId, context.RequestAborted);
+
+    try
+    {
+        while (!context.RequestAborted.IsCancellationRequested && socket.State == WebSocketState.Open)
+        {
+            var message = await WebSocketMessages.ReceiveAsync(socket, 4096, context.RequestAborted);
+            if (message is null)
+            {
+                break;
+            }
+        }
+    }
+    catch (OperationCanceledException)
+    {
+    }
+    catch (WebSocketException)
+    {
+    }
+    finally
+    {
+        registry.RemoveWatcher(watcher);
+    }
 });
 
 app.Map("/ws/webrtc/agent", async context =>

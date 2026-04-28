@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3912.50" />
     <ProjectReference Include="..\OwnDesk.Agent.Core\OwnDesk.Agent.Core.csproj" />
+    <ProjectReference Include="..\OwnDesk.Shared\OwnDesk.Shared.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

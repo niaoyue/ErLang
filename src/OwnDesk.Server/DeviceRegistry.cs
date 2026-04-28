@@ -1,21 +1,37 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Text.Json;
+using OwnDesk.Shared;
 using OwnDesk.Shared.Messages;
 
 namespace OwnDesk.Server;
 
 internal sealed class DeviceRegistry
 {
-    private readonly ConcurrentDictionary<DeviceKey, DeviceSession> _devices = new();
+    private readonly ConcurrentDictionary<DeviceKey, DeviceSession> _onlineDevices = new();
+    private readonly ConcurrentDictionary<DeviceKey, DeviceInfoDto> _deviceRecords = new();
+    private readonly ConcurrentDictionary<string, bool> _loadedOrganizations = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<Guid, DeviceWatcherSession> _watchers = new();
+    private readonly IDeviceRecordStore _store;
 
-    public DeviceSession RegisterAgent(string organizationId, string deviceId, string deviceName, WebSocket socket)
+    public DeviceRegistry(IDeviceRecordStore store)
     {
+        _store = store;
+    }
+
+    public async Task<DeviceSession> RegisterAgentAsync(
+        string organizationId,
+        string deviceId,
+        string deviceName,
+        WebSocket socket,
+        CancellationToken cancellationToken)
+    {
+        EnsureOrganizationLoaded(organizationId);
         var now = DateTimeOffset.UtcNow;
-        var session = new DeviceSession(
-            organizationId,
-            deviceId,
-            new SafeWebSocket(socket),
-            new DeviceInfoDto
+        var key = new DeviceKey(organizationId, deviceId);
+        var snapshot = _deviceRecords.AddOrUpdate(
+            key,
+            _ => new DeviceInfoDto
             {
                 DeviceId = deviceId,
                 DeviceName = deviceName,
@@ -24,9 +40,22 @@ internal sealed class DeviceRegistry
                 ScreenWidth = 0,
                 ScreenHeight = 0,
                 Online = true
+            },
+            (_, existing) => existing with
+            {
+                DeviceName = deviceName,
+                ConnectedAtUtc = now,
+                LastSeenUtc = now,
+                Online = true
             });
+        var session = new DeviceSession(
+            organizationId,
+            deviceId,
+            new SafeWebSocket(socket),
+            snapshot);
+        _store.Upsert(organizationId, snapshot);
 
-        _devices.AddOrUpdate(
+        _onlineDevices.AddOrUpdate(
             session.Key,
             session,
             (_, existing) =>
@@ -35,22 +64,25 @@ internal sealed class DeviceRegistry
                 return session;
             });
 
+        await NotifyDeviceListChangedAsync(organizationId, cancellationToken);
         return session;
     }
 
     public IReadOnlyList<DeviceInfoDto> ListDevices(string organizationId)
     {
-        return _devices
+        EnsureOrganizationLoaded(organizationId);
+        return _deviceRecords
             .Where(pair => pair.Key.OrganizationId == organizationId)
-            .Select(pair => pair.Value.Snapshot)
-            .OrderBy(device => device.DeviceName, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => pair.Value)
+            .OrderByDescending(device => device.Online)
+            .ThenBy(device => device.DeviceName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(device => device.DeviceId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 
     public bool TryGetDevice(string organizationId, string deviceId, out DeviceInfoDto? device)
     {
-        if (_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
+        if (_onlineDevices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
         {
             device = session.Snapshot;
             return true;
@@ -60,7 +92,12 @@ internal sealed class DeviceRegistry
         return false;
     }
 
-    public void UpdateHello(DeviceSession session, string deviceName, int screenWidth, int screenHeight)
+    public async Task UpdateHelloAsync(
+        DeviceSession session,
+        string deviceName,
+        int screenWidth,
+        int screenHeight,
+        CancellationToken cancellationToken)
     {
         if (!IsCurrent(session))
         {
@@ -74,6 +111,9 @@ internal sealed class DeviceRegistry
             ScreenHeight = screenHeight,
             LastSeenUtc = DateTimeOffset.UtcNow
         });
+        _deviceRecords[session.Key] = session.Snapshot;
+        _store.Upsert(session.OrganizationId, session.Snapshot);
+        await NotifyDeviceListChangedAsync(session.OrganizationId, cancellationToken);
     }
 
     public void UpdateFrame(DeviceSession session, int screenWidth, int screenHeight)
@@ -89,21 +129,50 @@ internal sealed class DeviceRegistry
             ScreenHeight = screenHeight,
             LastSeenUtc = DateTimeOffset.UtcNow
         });
+        _deviceRecords[session.Key] = session.Snapshot;
     }
 
-    public void UnregisterAgent(DeviceSession session)
+    public async Task UnregisterAgentAsync(DeviceSession session, CancellationToken cancellationToken)
     {
-        if (_devices.TryGetValue(session.Key, out var current) && ReferenceEquals(current, session))
+        if (_onlineDevices.TryGetValue(session.Key, out var current) && ReferenceEquals(current, session))
         {
-            _devices.TryRemove(session.Key, out _);
+            _onlineDevices.TryRemove(session.Key, out _);
+            session.Update(device => device with
+            {
+                Online = false,
+                LastSeenUtc = DateTimeOffset.UtcNow
+            });
+            _deviceRecords[session.Key] = session.Snapshot;
+            _store.Upsert(session.OrganizationId, session.Snapshot);
         }
 
         session.Abort();
+        await NotifyDeviceListChangedAsync(session.OrganizationId, cancellationToken);
+    }
+
+    public async Task<bool> RemoveDeviceAsync(string organizationId, string deviceId, CancellationToken cancellationToken)
+    {
+        EnsureOrganizationLoaded(organizationId);
+        var key = new DeviceKey(organizationId, deviceId);
+        var removed = _deviceRecords.TryRemove(key, out _);
+        if (_onlineDevices.TryRemove(key, out var session))
+        {
+            session.Abort();
+            removed = true;
+        }
+
+        if (removed)
+        {
+            _store.Remove(organizationId, deviceId);
+            await NotifyDeviceListChangedAsync(organizationId, cancellationToken);
+        }
+
+        return removed;
     }
 
     public ViewerSession? AddViewer(string organizationId, string deviceId, WebSocket socket)
     {
-        if (!_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
+        if (!_onlineDevices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session))
         {
             return null;
         }
@@ -170,7 +239,7 @@ internal sealed class DeviceRegistry
 
     public async Task<bool> SendToAgentAsync(string organizationId, string deviceId, string text, CancellationToken cancellationToken)
     {
-        if (!_devices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session) || !session.Agent.IsOpen)
+        if (!_onlineDevices.TryGetValue(new DeviceKey(organizationId, deviceId), out var session) || !session.Agent.IsOpen)
         {
             return false;
         }
@@ -179,9 +248,66 @@ internal sealed class DeviceRegistry
         return true;
     }
 
+    public DeviceWatcherSession AddWatcher(string organizationId, WebSocket socket)
+    {
+        var watcher = new DeviceWatcherSession(Guid.NewGuid(), organizationId, new SafeWebSocket(socket));
+        _watchers[watcher.Id] = watcher;
+        return watcher;
+    }
+
+    public void RemoveWatcher(DeviceWatcherSession watcher)
+    {
+        _watchers.TryRemove(watcher.Id, out _);
+    }
+
+    public async Task NotifyDeviceListChangedAsync(string organizationId, CancellationToken cancellationToken)
+    {
+        var message = JsonSerializer.Serialize(
+            new
+            {
+                type = OwnDeskMessageTypes.DeviceListChanged
+            },
+            JsonDefaults.Options);
+        foreach (var watcher in _watchers.Values.Where(watcher => watcher.OrganizationId == organizationId).ToArray())
+        {
+            if (!watcher.Connection.IsOpen)
+            {
+                RemoveWatcher(watcher);
+                continue;
+            }
+
+            try
+            {
+                using var sendTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await watcher.Connection.SendTextAsync(message, sendTimeout.Token);
+            }
+            catch (WebSocketException)
+            {
+                RemoveWatcher(watcher);
+            }
+            catch (OperationCanceledException)
+            {
+                RemoveWatcher(watcher);
+            }
+        }
+    }
+
     private bool IsCurrent(DeviceSession session)
     {
-        return _devices.TryGetValue(session.Key, out var current) && ReferenceEquals(current, session);
+        return _onlineDevices.TryGetValue(session.Key, out var current) && ReferenceEquals(current, session);
+    }
+
+    private void EnsureOrganizationLoaded(string organizationId)
+    {
+        if (!_loadedOrganizations.TryAdd(organizationId, true))
+        {
+            return;
+        }
+
+        foreach (var device in _store.Load(organizationId))
+        {
+            _deviceRecords[new DeviceKey(organizationId, device.DeviceId)] = device with { Online = false };
+        }
     }
 }
 
@@ -241,3 +367,5 @@ internal sealed class DeviceSession
 }
 
 internal sealed record ViewerSession(Guid Id, SafeWebSocket Connection, DeviceSession Device);
+
+internal sealed record DeviceWatcherSession(Guid Id, string OrganizationId, SafeWebSocket Connection);
