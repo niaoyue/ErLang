@@ -17,7 +17,8 @@ internal sealed partial class MainForm
             JsonSerializer.Serialize(organization.Account),
             JsonSerializer.Serialize(organization.Token),
             JsonSerializer.Serialize(organization.SessionToken),
-            JsonSerializer.Serialize(_settings.DeviceId));
+            JsonSerializer.Serialize(_settings.DeviceId),
+            _agentRunner.IsRunning ? "true" : "false");
 
         try
         {

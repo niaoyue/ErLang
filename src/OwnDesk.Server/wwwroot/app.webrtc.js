@@ -4,7 +4,10 @@ function handleViewerMessage(socket, data) {
   }
 
   if (data instanceof ArrayBuffer) {
-    recordBandwidthSample(data.byteLength);
+    if (state.mediaMode !== "webrtc") {
+      recordBandwidthSample(data.byteLength);
+    }
+
     drawBinaryFrame(data);
     return;
   }
@@ -12,7 +15,10 @@ function handleViewerMessage(socket, data) {
   if (data instanceof Blob) {
     data.arrayBuffer().then((buffer) => {
       if (state.socket === socket) {
-        recordBandwidthSample(buffer.byteLength);
+        if (state.mediaMode !== "webrtc") {
+          recordBandwidthSample(buffer.byteLength);
+        }
+
         drawBinaryFrame(buffer);
       }
     });
@@ -22,7 +28,10 @@ function handleViewerMessage(socket, data) {
   const text = data;
   const message = JSON.parse(text);
   if (message.type === "frame") {
-    recordBandwidthSample(text.length);
+    if (state.mediaMode !== "webrtc") {
+      recordBandwidthSample(text.length);
+    }
+
     drawFrame(message);
   } else if (message.type === "device" && message.device) {
     elements.activeDevice.textContent = message.device.deviceName || message.device.deviceId;
@@ -191,6 +200,7 @@ function activateWebRtcVideo() {
 
   const switchedToWebRtc = state.mediaMode !== "webrtc";
   state.mediaMode = "webrtc";
+  setRelayVideoEnabled(false);
   if (switchedToWebRtc) {
     resetBandwidthStats();
   }
@@ -204,6 +214,27 @@ function activateWebRtcVideo() {
   syncWebRtcVideoSize();
   startWebRtcBandwidthMonitor();
   startWebRtcFrameMonitor();
+}
+
+function setRelayVideoEnabled(enabled) {
+  if (state.relayVideoPaused === !enabled) {
+    return;
+  }
+
+  state.relayVideoPaused = !enabled;
+  if (!enabled) {
+    resetBandwidthStats();
+    state.webRtcLastBytesReceived = 0;
+  }
+
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  state.socket.send(JSON.stringify({
+    type: "relayVideo",
+    enabled
+  }));
 }
 
 function syncWebRtcVideoSize(frameWidth = 0, frameHeight = 0) {
@@ -311,6 +342,8 @@ function stopWebRtc(updateUi = true) {
   const socket = state.webRtcSocket;
   const controlChannel = state.webRtcControlChannel;
   const stream = elements.webrtcVideo.srcObject;
+
+  setRelayVideoEnabled(true);
 
   if (state.webRtcCandidateModeTimer) {
     window.clearTimeout(state.webRtcCandidateModeTimer);

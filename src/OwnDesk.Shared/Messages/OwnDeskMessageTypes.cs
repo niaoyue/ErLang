@@ -7,6 +7,7 @@ public static class OwnDeskMessageTypes
     public const string Frame = "frame";
     public const string Input = "input";
     public const string StreamQuality = "streamQuality";
+    public const string RelayVideo = "relayVideo";
     public const string Device = "device";
     public const string DeviceListChanged = "deviceListChanged";
     public const string Error = "error";

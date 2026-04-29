@@ -11,6 +11,7 @@ const state = {
   localDeviceId: new URLSearchParams(window.location.search).get("localDeviceId") || "",
   hostFullscreen: false,
   socket: null,
+  connectingDeviceId: "",
   deviceUpdatesSocket: null,
   deviceUpdatesReconnectTimer: 0,
   deviceUpdatesReconnectAttempt: 0,
@@ -36,6 +37,7 @@ const state = {
   bandwidthBytesPerSecond: 0,
   mediaMode: "jpeg",
   connectionMode: "中继",
+  relayVideoPaused: false,
   selectedDevice: null,
   lastMoveAt: 0,
   remotePointer: null,
@@ -123,3 +125,5 @@ const mobileControlQueries = [
 ];
 
 document.documentElement.classList.toggle("embedded-client", state.embeddedClient);
+window.state = state;
+window.elements = elements;

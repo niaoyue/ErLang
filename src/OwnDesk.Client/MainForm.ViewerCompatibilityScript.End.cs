@@ -35,33 +35,35 @@ internal sealed partial class MainForm
                 writeFrameStatsCompat();
               };
               const bandwidthRate = () => {
-                if (window.state) {
+                const stateValue = pageState();
+                if (stateValue) {
                   const now = performance.now();
-                  const samples = Array.isArray(window.state.bandwidthSamples)
-                    ? window.state.bandwidthSamples.filter((sample) => now - sample.at <= 2000)
+                  const samples = Array.isArray(stateValue.bandwidthSamples)
+                    ? stateValue.bandwidthSamples.filter((sample) => now - sample.at <= 2000)
                     : [];
-                  window.state.bandwidthSamples = samples;
+                  stateValue.bandwidthSamples = samples;
                   if (!samples.length) {
-                    window.state.bandwidthBytesPerSecond = 0;
+                    stateValue.bandwidthBytesPerSecond = 0;
                     return 0;
                   }
 
                   const total = samples.reduce((sum, sample) => sum + sample.bytes, 0);
                   const oldest = samples[0].at;
                   const span = Math.max(1000, Math.min(2000, now - oldest));
-                  window.state.bandwidthBytesPerSecond = total * 1000 / span;
-                  return window.state.bandwidthBytesPerSecond;
+                  stateValue.bandwidthBytesPerSecond = total * 1000 / span;
+                  return stateValue.bandwidthBytesPerSecond;
                 }
 
                 refreshBandwidthCompat();
                 return window.__ownDeskBandwidth.bytesPerSecond;
               };
               const connectionMode = () => {
-                if (window.state?.connectionMode) {
-                  return window.state.connectionMode;
+                const stateValue = pageState();
+                if (stateValue?.connectionMode) {
+                  return stateValue.connectionMode;
                 }
 
-                return window.state?.mediaMode === "webrtc" ? "检测中" : "中继";
+                return stateValue?.mediaMode === "webrtc" ? "检测中" : "中继";
               };
               const writeFrameStatsCompat = () => {
                 const stats = document.getElementById("frameStats");
@@ -95,9 +97,7 @@ internal sealed partial class MainForm
               window.__ownDeskStartDeviceWatcherCompat = startDeviceWatcherCompat;
               window.__ownDeskUpdateFrameStatsCompat = writeFrameStatsCompat;
               window.__ownDeskApplyClientCompatibility = () => {
-                if (window.state) {
-                  window.state.localDeviceId = window.__ownDeskClientSession?.localDeviceId || "";
-                }
+                updateLocalDeviceId();
 
                 installRtcPeerConnectionPatch();
                 replaceLabels();
@@ -117,8 +117,14 @@ internal sealed partial class MainForm
                     const current = window[name];
                     const wrapped = function (...args) {
                       const result = current.apply(this, args);
-                      if (window.state) {
-                        window.state.selectedDevice = null;
+                      if (name === "disconnectViewer" && args[0] === false) {
+                        return result;
+                      }
+
+                      window.__ownDeskConnectingDeviceId = "";
+                      const stateValue = pageState();
+                      if (stateValue) {
+                        stateValue.selectedDevice = null;
                       }
 
                       const activeDevice = document.getElementById("activeDevice");
@@ -132,6 +138,7 @@ internal sealed partial class MainForm
                       }
 
                       rerenderDevicesSoon();
+                      refreshDevicesCompat("disconnect");
                       return result;
                     };
                     wrapped.__ownDeskDeviceStateWrapped = true;
@@ -154,7 +161,10 @@ internal sealed partial class MainForm
                   const current = window.handleViewerMessage;
                   const wrapped = function (socket, data) {
                     const byteCount = typeof data === "string" ? data.length : data?.byteLength || data?.size || 0;
-                    recordBandwidth(byteCount);
+                    if (pageState()?.mediaMode !== "webrtc") {
+                      recordBandwidth(byteCount);
+                    }
+
                     return current.apply(this, arguments);
                   };
                   wrapped.__ownDeskWrapped = true;
@@ -171,6 +181,15 @@ internal sealed partial class MainForm
                     refreshDevicesCompat("scheduled");
                   }, delay);
                 }
+              };
+              window.__ownDeskSetLocalAgentRunning = (running) => {
+                window.__ownDeskClientSession = {
+                  ...(window.__ownDeskClientSession || {}),
+                  localAgentRunning: Boolean(running)
+                };
+                updateLocalDeviceId();
+                renderDevices(pageState()?.devices || loadHistory());
+                refreshDevicesCompat(running ? "local-agent-started" : "local-agent-stopped");
               };
 
               window.setTimeout(() => {

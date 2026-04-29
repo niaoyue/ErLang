@@ -21,6 +21,7 @@ internal sealed class WebRtcAgentSignalingClient
     private readonly WebRtcConfigDto _webRtcConfig;
     private readonly ConcurrentDictionary<string, WebRtcPeerSession> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendGate = new(1, 1);
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
     private ClientWebSocket? _socket;
 
     public WebRtcAgentSignalingClient(
@@ -173,36 +174,44 @@ internal sealed class WebRtcAgentSignalingClient
             return;
         }
 
-        await ClosePeerSessionAsync(signal.SessionId);
-
-        var session = new WebRtcPeerSession(
-            signal.SessionId,
-            _options,
-            _screenCapture,
-            _qualityController,
-            _encodingPlan,
-            _controlHandler,
-            _mediaState,
-            _webRtcConfig,
-            SendSignalSafeAsync);
-        _sessions[signal.SessionId] = session;
-
+        await _sessionGate.WaitAsync(cancellationToken);
         try
         {
-            await session.AcceptOfferAsync(signal, cancellationToken);
+            await CloseAllPeerSessionsAsync();
+
+            var session = new WebRtcPeerSession(
+                signal.SessionId,
+                _options,
+                _screenCapture,
+                _qualityController,
+                _encodingPlan,
+                _controlHandler,
+                _mediaState,
+                _webRtcConfig,
+                SendSignalSafeAsync);
+            _sessions[signal.SessionId] = session;
+
+            try
+            {
+                await session.AcceptOfferAsync(signal, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                await ClosePeerSessionAsync(signal.SessionId);
+                await SendSignalSafeAsync(
+                    new WebRtcSignalMessage
+                    {
+                        Type = OwnDeskMessageTypes.WebRtcError,
+                        SessionId = signal.SessionId,
+                        DeviceId = _options.DeviceId,
+                        Message = ex.Message
+                    },
+                    cancellationToken);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            await ClosePeerSessionAsync(signal.SessionId);
-            await SendSignalSafeAsync(
-                new WebRtcSignalMessage
-                {
-                    Type = OwnDeskMessageTypes.WebRtcError,
-                    SessionId = signal.SessionId,
-                    DeviceId = _options.DeviceId,
-                    Message = ex.Message
-                },
-                cancellationToken);
+            _sessionGate.Release();
         }
     }
 

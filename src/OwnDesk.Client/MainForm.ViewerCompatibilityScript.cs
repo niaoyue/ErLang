@@ -7,7 +7,8 @@ internal sealed partial class MainForm
         string account,
         string token,
         string sessionToken,
-        string localDeviceId)
+        string localDeviceId,
+        string localAgentRunning)
     {
         return string.Concat(
             $$"""
@@ -17,15 +18,36 @@ internal sealed partial class MainForm
                 account: {{account}},
                 token: {{token}},
                 sessionToken: {{sessionToken}},
-                localDeviceId: {{localDeviceId}}
+                localDeviceId: {{localDeviceId}},
+                localAgentRunning: {{localAgentRunning}}
               };
               window.__ownDeskClientSession = {
                 ...(window.__ownDeskClientSession || {}),
                 ...clientSession
               };
-              if (window.state) {
-                window.state.localDeviceId = clientSession.localDeviceId;
-              }
+              const pageState = () => {
+                let value = window.state;
+                if (!value) {
+                  try {
+                    value = typeof state !== "undefined" ? state : null;
+                  } catch {
+                    value = null;
+                  }
+
+                  if (value && typeof value === "object") {
+                    window.state = value;
+                  }
+                }
+
+                return value || null;
+              };
+              const updateLocalDeviceId = () => {
+                const stateValue = pageState();
+                if (stateValue) {
+                  stateValue.localDeviceId = window.__ownDeskClientSession?.localDeviceId || "";
+                }
+              };
+              updateLocalDeviceId();
 
               if (window.__ownDeskApplyClientCompatibility) {
                 window.__ownDeskApplyClientCompatibility();
@@ -35,6 +57,13 @@ internal sealed partial class MainForm
               const retryDelays = [250, 900, 1800, 3500, 6500];
               const bandwidthTextPattern = /^[\d.]+(?:B|KB|M|GB)\/S$/;
               const connectionModePattern = /^(中继|直连|检测中)$/;
+              const isLocalAgentRunning = () => Boolean(window.__ownDeskClientSession?.localAgentRunning);
+              const isLocalDevice = (device) => {
+                const stateValue = pageState();
+                const localDeviceId = window.__ownDeskClientSession?.localDeviceId || stateValue?.localDeviceId || "";
+                return Boolean(localDeviceId && device?.deviceId === localDeviceId);
+              };
+              const isLocalRunningDevice = (device) => isLocalAgentRunning() && isLocalDevice(device);
 
               const historyKey = () => {
                 const auth = readAuth();
@@ -42,13 +71,18 @@ internal sealed partial class MainForm
               };
               const normalize = (device, defaultOnline) => {
                 const hasOnline = typeof device.online === "boolean" || typeof device.Online === "boolean";
-                return {
+                const normalized = {
                   deviceId: device.deviceId || device.DeviceId || "",
                   deviceName: device.deviceName || device.DeviceName || device.deviceId || device.DeviceId || "",
                   screenWidth: device.screenWidth || device.ScreenWidth || 0,
                   screenHeight: device.screenHeight || device.ScreenHeight || 0,
                   online: hasOnline ? Boolean(device.online ?? device.Online) : defaultOnline
                 };
+                if (isLocalRunningDevice(normalized)) {
+                  normalized.online = true;
+                }
+
+                return normalized;
               };
               const loadHistory = () => {
                 try {
@@ -61,7 +95,10 @@ internal sealed partial class MainForm
                 localStorage.setItem(historyKey(), JSON.stringify(devices));
               };
               const mergeHistory = (devices) => {
-                const map = new Map(loadHistory().map((device) => [device.deviceId, { ...device, online: false }]));
+                const map = new Map(loadHistory().map((device) => {
+                  const normalized = normalize(device, false);
+                  return [normalized.deviceId, normalized];
+                }));
                 for (const item of devices || []) {
                   const device = normalize(item, true);
                   if (device.deviceId) {
@@ -72,12 +109,12 @@ internal sealed partial class MainForm
                 const merged = [...map.values()].sort((left, right) =>
                   Number(right.online) - Number(left.online) ||
                   left.deviceName.localeCompare(right.deviceName));
-                saveHistory(merged.map((device) => ({ ...device, online: false })));
+                saveHistory(merged.map((device) => ({ ...device, online: isLocalRunningDevice(device) })));
                 return merged;
               };
               const readAuth = () => {
                 const injected = window.__ownDeskClientSession || {};
-                const stateValue = window.state || {};
+                const stateValue = pageState() || {};
                 return {
                   account: stateValue.account || injected.account || document.getElementById("accountInput")?.value?.trim() || "",
                   token: stateValue.token || injected.token || document.getElementById("organizationTokenInput")?.value?.trim() || "",
@@ -166,10 +203,18 @@ internal sealed partial class MainForm
                 PatchedPeerConnection.__ownDeskIcePatched = true;
                 window.RTCPeerConnection = PatchedPeerConnection;
               };
-              const isSelectedDevice = (device) =>
-                Boolean(window.state?.selectedDevice?.deviceId && window.state.selectedDevice.deviceId === device.deviceId);
+              const isSelectedDevice = (device) => {
+                const stateValue = pageState();
+                return Boolean(stateValue?.selectedDevice?.deviceId && stateValue.selectedDevice.deviceId === device.deviceId);
+              };
               const isConnectedDevice = (device) => {
-                if (isSelectedDevice(device) && window.state?.socket?.readyState === WebSocket.OPEN) {
+                const stateValue = pageState();
+                const activeSocket = stateValue?.socket;
+                if (device?.deviceId && window.__ownDeskConnectingDeviceId === device.deviceId) {
+                  return true;
+                }
+
+                if (isSelectedDevice(device) && activeSocket?.readyState <= WebSocket.OPEN) {
                   return true;
                 }
 
@@ -177,30 +222,43 @@ internal sealed partial class MainForm
                 return Boolean(
                   activeText &&
                   activeText !== "未连接" &&
-                  window.state?.socket?.readyState === WebSocket.OPEN &&
+                  activeSocket?.readyState <= WebSocket.OPEN &&
                   (activeText === device?.deviceId || activeText === device?.deviceName));
               };
-              const rerenderDevicesSoon = () => window.setTimeout(() => renderDevices(window.state?.devices || loadHistory()), 80);
+              const rerenderDevices = () => renderDevices(pageState()?.devices || loadHistory());
+              const rerenderDevicesSoon = () => window.setTimeout(rerenderDevices, 80);
               const startDirectForConnectedSoon = (device) => {
-                if ((!device?.online && !isConnectedDevice(device)) || typeof window.startWebRtc !== "function") {
+                if ((!device?.online && !isConnectedDevice(device) && !isLocalRunningDevice(device)) || typeof window.startWebRtc !== "function") {
                   return;
                 }
 
                 for (const delay of [150, 450, 1000, 2200, 4500, 8000]) {
                   window.setTimeout(() => {
-                    if (isConnectedDevice(device) && !window.state.webRtcPeer) {
+                    if (isConnectedDevice(device) && !pageState()?.webRtcPeer) {
                       ensureIceServersCompat().finally(() => Promise.resolve(window.startWebRtc()).catch(() => {}));
                     }
                   }, delay);
                 }
               };
               const connectDeviceCompat = (device) => {
+                if (!device?.deviceId) {
+                  return;
+                }
+
                 if (isConnectedDevice(device)) {
+                  window.__ownDeskConnectingDeviceId = "";
                   window.disconnectViewer?.();
                   rerenderDevicesSoon();
                   return;
                 }
 
+                window.__ownDeskConnectingDeviceId = device.deviceId;
+                const stateValue = pageState();
+                if (stateValue) {
+                  stateValue.selectedDevice = { ...device, online: true };
+                }
+
+                rerenderDevices();
                 window.connectViewer?.(device);
                 startDirectForConnectedSoon(device);
                 rerenderDevicesSoon();

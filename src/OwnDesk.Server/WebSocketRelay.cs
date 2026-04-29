@@ -120,6 +120,7 @@ internal sealed class WebSocketRelay
         }
 
         _logger.LogInformation("Viewer connected: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
+        await _registry.SendRelayVideoDemandAsync(viewer.Device, cancellationToken);
 
         try
         {
@@ -148,7 +149,18 @@ internal sealed class WebSocketRelay
                 }
 
                 var text = WebSocketMessages.AsText(message);
-                if (TryGetMessageType(text, out var type) && IsViewerToAgentMessage(type))
+                if (!TryGetMessageType(text, out var type))
+                {
+                    continue;
+                }
+
+                if (type == OwnDeskMessageTypes.RelayVideo && TryGetRelayVideoEnabled(text, out var enabled))
+                {
+                    await _registry.SetViewerRelayVideoAsync(viewer, enabled, cancellationToken);
+                    continue;
+                }
+
+                if (IsViewerToAgentMessage(type))
                 {
                     await _registry.SendToAgentAsync(organizationId, deviceId, text, cancellationToken);
                 }
@@ -172,6 +184,7 @@ internal sealed class WebSocketRelay
         finally
         {
             _registry.RemoveViewer(viewer);
+            await _registry.SendRelayVideoDemandAsync(viewer.Device, CancellationToken.None);
             _logger.LogInformation("Viewer disconnected: {OrganizationId}/{DeviceId}/{ViewerId}", organizationId, deviceId, viewer.Id);
         }
     }
@@ -221,6 +234,19 @@ internal sealed class WebSocketRelay
         width = header.Width;
         height = header.Height;
         return width > 0 && height > 0;
+    }
+
+    private static bool TryGetRelayVideoEnabled(string text, out bool enabled)
+    {
+        enabled = true;
+        using var document = JsonDocument.Parse(text);
+        if (!document.RootElement.TryGetProperty("enabled", out var enabledElement))
+        {
+            return false;
+        }
+
+        enabled = enabledElement.ValueKind == JsonValueKind.True;
+        return enabledElement.ValueKind is JsonValueKind.True or JsonValueKind.False;
     }
 
     private static bool IsViewerToAgentMessage(string type)

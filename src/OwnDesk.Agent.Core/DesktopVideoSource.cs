@@ -8,6 +8,8 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 {
     private const int RtpVideoClockRate = 90000;
 
+    private static readonly object CodecGate = new();
+
     private readonly ScreenCaptureService _screenCapture;
     private readonly StreamQualityController _qualityController;
     private readonly WebRtcEncodingPlan _encodingPlan;
@@ -175,8 +177,14 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 
         var format = GetSelectedFormat();
         byte[] encoded;
+        lock (CodecGate)
         lock (_encoderGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             encoded = _encoder.EncodeVideoFaster(rawImage, ToEncodeCodec(format));
         }
 
@@ -188,8 +196,19 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 
     public void ForceKeyFrame()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        lock (CodecGate)
         lock (_encoderGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _encoder.ForceKeyFrame();
         }
     }
@@ -207,7 +226,11 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 
         _disposed = true;
         CloseVideo().GetAwaiter().GetResult();
-        _encoder.Dispose();
+        lock (CodecGate)
+        lock (_encoderGate)
+        {
+            _encoder.Dispose();
+        }
     }
 
     private async Task CaptureLoopAsync(CancellationToken cancellationToken)
@@ -294,8 +317,14 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 
         var format = GetSelectedFormat();
         byte[] encoded;
+        lock (CodecGate)
         lock (_encoderGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             encoded = _encoder.EncodeVideo(width, height, sample, pixelFormat, ToEncodeCodec(format));
         }
 
@@ -320,8 +349,14 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
             return;
         }
 
+        lock (CodecGate)
         lock (_encoderGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             if (_currentTargetKbps == targetKbps)
             {
                 return;

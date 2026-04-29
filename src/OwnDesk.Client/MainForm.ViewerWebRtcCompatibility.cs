@@ -11,10 +11,26 @@ internal sealed partial class MainForm
 
         const string script = """
             (() => {
+              const pageState = () => {
+                let value = window.state;
+                if (!value) {
+                  try {
+                    value = typeof state !== "undefined" ? state : null;
+                  } catch {
+                    value = null;
+                  }
+
+                  if (value && typeof value === "object") {
+                    window.state = value;
+                  }
+                }
+
+                return value || null;
+              };
               const report = (event, detail = {}) =>
                 window.chrome?.webview?.postMessage({ type: "webrtcDiagnostic", event, detail });
               const sendControl = (payload) => {
-                const channel = window.state?.webRtcControlChannel;
+                const channel = pageState()?.webRtcControlChannel;
                 if (!channel || channel.readyState !== "open") {
                   return false;
                 }
@@ -28,11 +44,17 @@ internal sealed partial class MainForm
                 }
 
                 channel.__ownDeskControlSetup = "1";
-                window.state.webRtcControlChannel = channel;
+                const stateValue = pageState();
+                if (!stateValue) {
+                  return;
+                }
+
+                stateValue.webRtcControlChannel = channel;
                 channel.addEventListener("open", () => report("data-channel-open", { label: channel.label }));
                 channel.addEventListener("close", () => {
-                  if (window.state?.webRtcControlChannel === channel) {
-                    window.state.webRtcControlChannel = null;
+                  const currentState = pageState();
+                  if (currentState?.webRtcControlChannel === channel) {
+                    currentState.webRtcControlChannel = null;
                   }
 
                   report("data-channel-close", { label: channel.label });
@@ -43,9 +65,10 @@ internal sealed partial class MainForm
                 const NativePeerConnection = window.RTCPeerConnection;
                 const PatchedPeerConnection = function (config = {}, ...rest) {
                   const peer = new NativePeerConnection(config, ...rest);
+                  const stateValue = pageState();
                   if (typeof window.setupWebRtcControlChannel !== "function" &&
-                      window.state &&
-                      !window.state.webRtcControlChannel) {
+                      stateValue &&
+                      !stateValue.webRtcControlChannel) {
                     setupControlChannel(peer.createDataChannel("control", { ordered: true }));
                   }
 

@@ -21,7 +21,7 @@ internal sealed partial class MainForm
         }
 
         var server = organization.Server.TrimEnd('/');
-        if (!Uri.TryCreate($"{server}/index.html?embedded=client&shell=20260429-bandwidth-decay1", UriKind.Absolute, out var uri))
+        if (!Uri.TryCreate($"{server}/index.html?embedded=client&shell=20260429-relay-state1", UriKind.Absolute, out var uri))
         {
             _viewerStatus.Text = "控制台：服务器地址无效";
             return;

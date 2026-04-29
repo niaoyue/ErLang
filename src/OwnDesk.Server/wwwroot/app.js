@@ -5,7 +5,7 @@
 
   window.__ownDeskAppLoading = true;
 
-  const version = "20260429-bandwidth-decay1";
+  const version = "20260429-relay-state1";
   const scriptNames = [
     "app.state.js",
     "app.organizations.js",

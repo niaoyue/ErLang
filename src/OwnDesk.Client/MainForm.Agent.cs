@@ -53,6 +53,7 @@ internal sealed partial class MainForm
         await _agentRunner.StartAsync(organization, _settings);
         SetAgentRunning(true);
         AppendLog($"Local agent started as {_settings.DeviceName} ({_settings.DeviceId})");
+        await UpdateEmbeddedLocalAgentRunningAsync(true);
         await RefreshEmbeddedDevicesSoonAsync();
     }
 
@@ -60,6 +61,8 @@ internal sealed partial class MainForm
     {
         await _agentRunner.StopAsync();
         SetAgentRunning(false);
+        await UpdateEmbeddedLocalAgentRunningAsync(false);
+        await RefreshEmbeddedDevicesSoonAsync();
     }
 
     private async Task StartAgentIfConfiguredAsync(bool force = false)

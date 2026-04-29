@@ -187,6 +187,39 @@ internal sealed class DeviceRegistry
         viewer.Device.Viewers.TryRemove(viewer.Id, out _);
     }
 
+    public async Task SetViewerRelayVideoAsync(ViewerSession viewer, bool enabled, CancellationToken cancellationToken)
+    {
+        viewer.RelayVideoEnabled = enabled;
+        await SendRelayVideoDemandAsync(viewer.Device, cancellationToken);
+    }
+
+    public async Task SendRelayVideoDemandAsync(DeviceSession session, CancellationToken cancellationToken)
+    {
+        if (!IsCurrent(session) || !session.Agent.IsOpen)
+        {
+            return;
+        }
+
+        var enabled = session.Viewers.Values.Any(viewer => viewer.Connection.IsOpen && viewer.RelayVideoEnabled);
+        var message = JsonSerializer.Serialize(
+            new
+            {
+                type = OwnDeskMessageTypes.RelayVideo,
+                enabled
+            },
+            JsonDefaults.Options);
+        try
+        {
+            await session.Agent.SendTextAsync(message, cancellationToken);
+        }
+        catch (WebSocketException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
     public async Task BroadcastToViewersAsync(DeviceSession session, string text, CancellationToken cancellationToken)
     {
         foreach (var viewer in session.Viewers.Values.ToArray())
@@ -194,6 +227,11 @@ internal sealed class DeviceRegistry
             if (!viewer.Connection.IsOpen)
             {
                 RemoveViewer(viewer);
+                continue;
+            }
+
+            if (!viewer.RelayVideoEnabled)
+            {
                 continue;
             }
 
@@ -219,6 +257,11 @@ internal sealed class DeviceRegistry
             if (!viewer.Connection.IsOpen)
             {
                 RemoveViewer(viewer);
+                continue;
+            }
+
+            if (!viewer.RelayVideoEnabled)
+            {
                 continue;
             }
 
@@ -366,6 +409,15 @@ internal sealed class DeviceSession
     }
 }
 
-internal sealed record ViewerSession(Guid Id, SafeWebSocket Connection, DeviceSession Device);
+internal sealed class ViewerSession(Guid id, SafeWebSocket connection, DeviceSession device)
+{
+    public Guid Id { get; } = id;
+
+    public SafeWebSocket Connection { get; } = connection;
+
+    public DeviceSession Device { get; } = device;
+
+    public bool RelayVideoEnabled { get; set; } = true;
+}
 
 internal sealed record DeviceWatcherSession(Guid Id, string OrganizationId, SafeWebSocket Connection);

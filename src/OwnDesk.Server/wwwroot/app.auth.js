@@ -205,7 +205,9 @@ function isSelectedDevice(device) {
 }
 
 function isConnectedDevice(device) {
-  return Boolean(isSelectedDevice(device) && state.socket?.readyState === WebSocket.OPEN);
+  return Boolean(device?.deviceId && (
+    state.connectingDeviceId === device.deviceId ||
+    (isSelectedDevice(device) && state.socket?.readyState <= WebSocket.OPEN)));
 }
 
 function updateConnectedDevice(device) {
@@ -234,7 +236,7 @@ function renderCurrentDevicesSoon() {
 }
 
 function connectOrDisconnectDevice(device) {
-  if (isSelectedDevice(device)) {
+  if (isConnectedDevice(device)) {
     disconnectViewer();
     return;
   }
@@ -347,6 +349,7 @@ function connectViewer(device) {
   disconnectViewer(false);
 
   state.selectedDevice = device;
+  state.connectingDeviceId = device.deviceId;
   state.frameCount = 0;
   state.frameWidth = 0;
   state.frameHeight = 0;
@@ -381,15 +384,16 @@ function connectViewer(device) {
   elements.connectionStatus.textContent = "连接中";
   elements.connectionStatus.classList.remove("offline");
   setRemoteControlsEnabled(true);
-  renderDevices(state.devices);
 
   const socket = new WebSocket(webSocketUrl(`/ws/viewer?deviceId=${encodeURIComponent(device.deviceId)}`));
   socket.binaryType = "arraybuffer";
   state.socket = socket;
+  renderDevices(state.devices);
 
   socket.addEventListener("open", () => {
     sendSocketAuth(socket);
     elements.connectionStatus.textContent = "已连接";
+    state.connectingDeviceId = "";
     elements.canvas.focus();
     sendStreamQuality(elements.qualitySelect.value);
     startDirectForConnectedDevice(device);
@@ -406,6 +410,8 @@ function connectViewer(device) {
     if (state.socket === socket) {
       elements.connectionStatus.textContent = "错误";
       elements.connectionStatus.classList.add("offline");
+      state.connectingDeviceId = "";
+      renderCurrentDevicesSoon();
     }
   });
 }
@@ -427,6 +433,7 @@ function disconnectViewer(updateUi = true) {
   }
 
   state.socket = null;
+  state.connectingDeviceId = "";
 
   if (updateUi) {
     markDisconnected();
@@ -441,6 +448,7 @@ function markDisconnected() {
   stopWebRtc(false);
   releaseActiveModifiers(false);
   state.selectedDevice = null;
+  state.connectingDeviceId = "";
   state.remotePointer = null;
   state.connectionMode = "中继";
   resetBandwidthStats();

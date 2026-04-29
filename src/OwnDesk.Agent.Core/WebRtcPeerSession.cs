@@ -97,6 +97,9 @@ internal sealed class WebRtcPeerSession
             return;
         }
 
+        await StopVideoSourceAsync();
+        ReleaseMediaState();
+
         try
         {
             _peerConnection.Close(reason);
@@ -105,8 +108,6 @@ internal sealed class WebRtcPeerSession
         {
         }
 
-        await StopVideoSourceAsync();
-        ReleaseMediaState();
         _videoSource.Dispose();
         _peerConnection.Dispose();
     }
@@ -119,6 +120,11 @@ internal sealed class WebRtcPeerSession
 
         _videoSource.OnVideoSourceEncodedSample += (duration, sample) =>
         {
+            if (Volatile.Read(ref _closed) == 1)
+            {
+                return;
+            }
+
             RegisterMediaState();
             peerConnection.SendVideo(duration, sample);
         };

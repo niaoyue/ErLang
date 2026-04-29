@@ -37,13 +37,14 @@ internal sealed partial class MainForm
                   return;
                 }
 
-                if (window.state) {
-                  window.state.devices = merged;
+                const stateValue = pageState();
+                if (stateValue) {
+                  stateValue.devices = merged;
                 }
 
                 for (const device of merged) {
                   const connected = isConnectedDevice(device);
-                  const online = device.online || connected;
+                  const online = device.online || connected || isLocalRunningDevice(device);
                   const card = document.createElement("div");
                   card.className = "device-card";
                   card.classList.toggle("is-offline", !online);

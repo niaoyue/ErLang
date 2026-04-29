@@ -14,6 +14,7 @@ internal sealed class RemoteControlHandler
     private readonly StreamQualityController _qualityController;
     private readonly Queue<(DateTimeOffset At, int Count)> _recentTextInputs = new();
     private readonly object _inputRateGate = new();
+    private int _relayVideoEnabled = 1;
 
     public RemoteControlHandler(InputController inputController, StreamQualityController qualityController)
     {
@@ -25,6 +26,8 @@ internal sealed class RemoteControlHandler
     {
         _inputController.UpdateFrameSize(width, height);
     }
+
+    public bool RelayVideoEnabled => Volatile.Read(ref _relayVideoEnabled) == 1;
 
     public void HandleJson(string text)
     {
@@ -51,6 +54,13 @@ internal sealed class RemoteControlHandler
                 Console.WriteLine(
                     $"Stream quality changed: {settings.Profile} {settings.FramesPerSecond}fps JPEG={settings.JpegQuality} max={settings.MaxWidth}x{settings.MaxHeight} WebRTC={settings.WebRtcBitrateKbps}kbps");
             }
+        }
+        else if (type == OwnDeskMessageTypes.RelayVideo)
+        {
+            var enabled = !document.RootElement.TryGetProperty("enabled", out var enabledElement) ||
+                          enabledElement.ValueKind != JsonValueKind.False;
+            Volatile.Write(ref _relayVideoEnabled, enabled ? 1 : 0);
+            Console.WriteLine(enabled ? "Relay JPEG stream resumed." : "Relay JPEG stream paused.");
         }
     }
 

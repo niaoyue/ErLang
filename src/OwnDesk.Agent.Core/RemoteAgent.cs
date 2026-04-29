@@ -137,7 +137,7 @@ internal sealed class RemoteAgent
         while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
             var settings = _qualityController.Current;
-            if (_webRtcMediaState.HasActiveVideo)
+            if (!_controlHandler.RelayVideoEnabled)
             {
                 await Task.Delay(settings.FrameDelay, cancellationToken);
                 continue;

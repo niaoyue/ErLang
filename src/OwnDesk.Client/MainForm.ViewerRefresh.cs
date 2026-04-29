@@ -39,4 +39,22 @@ internal sealed partial class MainForm
             ClientLog.WriteException("WebView device refresh script failed", ex);
         }
     }
+
+    private async Task UpdateEmbeddedLocalAgentRunningAsync(bool running)
+    {
+        if (_webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var script = $"window.__ownDeskSetLocalAgentRunning?.({running.ToString().ToLowerInvariant()});";
+        try
+        {
+            await _webView.CoreWebView2.ExecuteScriptAsync(script);
+        }
+        catch (Exception ex)
+        {
+            ClientLog.WriteException("WebView local agent state script failed", ex);
+        }
+    }
 }
