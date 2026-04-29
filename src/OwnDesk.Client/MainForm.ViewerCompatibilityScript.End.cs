@@ -8,24 +8,53 @@ internal sealed partial class MainForm
 
                 return `${Math.round(bytesPerSecond)}B/S`;
               };
+              const refreshBandwidthCompat = () => {
+                const now = performance.now();
+                const bandwidth = window.__ownDeskBandwidth || { samples: [], bytesPerSecond: 0 };
+                bandwidth.samples = (bandwidth.samples || []).filter((sample) => now - sample.at <= 2000);
+                if (!bandwidth.samples.length) {
+                  bandwidth.bytesPerSecond = 0;
+                  window.__ownDeskBandwidth = bandwidth;
+                  return;
+                }
+
+                const total = bandwidth.samples.reduce((sum, sample) => sum + sample.bytes, 0);
+                const oldest = bandwidth.samples[0].at;
+                const span = Math.max(1000, Math.min(2000, now - oldest));
+                bandwidth.bytesPerSecond = total * 1000 / span;
+                window.__ownDeskBandwidth = bandwidth;
+              };
               const recordBandwidth = (byteCount) => {
                 if (!Number.isFinite(byteCount) || byteCount <= 0) {
                   return;
                 }
 
-                const now = performance.now();
                 const samples = window.__ownDeskBandwidth.samples;
-                samples.push({ at: now, bytes: byteCount });
-                window.__ownDeskBandwidth.samples = samples.filter((sample) => now - sample.at <= 2000);
-                const total = window.__ownDeskBandwidth.samples.reduce((sum, sample) => sum + sample.bytes, 0);
-                const oldest = window.__ownDeskBandwidth.samples[0]?.at ?? now;
-                const span = Math.max(1000, Math.min(2000, now - oldest));
-                window.__ownDeskBandwidth.bytesPerSecond = total * 1000 / span;
+                samples.push({ at: performance.now(), bytes: byteCount });
+                refreshBandwidthCompat();
                 writeFrameStatsCompat();
               };
               const bandwidthRate = () => {
-                const stateRate = Number(window.state?.bandwidthBytesPerSecond || 0);
-                return stateRate > 0 ? stateRate : window.__ownDeskBandwidth.bytesPerSecond;
+                if (window.state) {
+                  const now = performance.now();
+                  const samples = Array.isArray(window.state.bandwidthSamples)
+                    ? window.state.bandwidthSamples.filter((sample) => now - sample.at <= 2000)
+                    : [];
+                  window.state.bandwidthSamples = samples;
+                  if (!samples.length) {
+                    window.state.bandwidthBytesPerSecond = 0;
+                    return 0;
+                  }
+
+                  const total = samples.reduce((sum, sample) => sum + sample.bytes, 0);
+                  const oldest = samples[0].at;
+                  const span = Math.max(1000, Math.min(2000, now - oldest));
+                  window.state.bandwidthBytesPerSecond = total * 1000 / span;
+                  return window.state.bandwidthBytesPerSecond;
+                }
+
+                refreshBandwidthCompat();
+                return window.__ownDeskBandwidth.bytesPerSecond;
               };
               const connectionMode = () => {
                 if (window.state?.connectionMode) {

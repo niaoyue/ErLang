@@ -3,6 +3,10 @@ namespace OwnDesk.Shared.Messages;
 public sealed record WebRtcConfigDto
 {
     public WebRtcIceServerDto[] IceServers { get; init; } = [];
+
+    public string IceTransportPolicy { get; init; } = "all";
+
+    public bool RelayConfigured { get; init; }
 }
 
 public sealed record WebRtcIceServerDto

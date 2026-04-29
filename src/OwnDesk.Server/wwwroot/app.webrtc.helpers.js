@@ -1,10 +1,16 @@
 async function loadWebRtcConfig() {
   if (state.webRtcIceConfigLoaded) {
-    return { iceServers: state.webRtcIceServers };
+    return {
+      iceServers: state.webRtcIceServers,
+      iceTransportPolicy: state.webRtcIceTransportPolicy
+    };
   }
 
   if (state.webRtcIceConfigRetryAt && performance.now() < state.webRtcIceConfigRetryAt) {
-    return { iceServers: [] };
+    return {
+      iceServers: [],
+      iceTransportPolicy: "all"
+    };
   }
 
   try {
@@ -22,20 +28,26 @@ async function loadWebRtcConfig() {
 
     const config = await response.json();
     state.webRtcIceServers = normalizeIceServers(config.iceServers);
+    state.webRtcIceTransportPolicy = normalizeIceTransportPolicy(config.iceTransportPolicy);
     state.webRtcIceConfigLoaded = true;
     state.webRtcIceConfigRetryAt = 0;
   } catch (error) {
     state.webRtcIceServers = [];
+    state.webRtcIceTransportPolicy = "all";
     state.webRtcIceConfigLoaded = false;
     state.webRtcIceConfigRetryAt = performance.now() + 5000;
     reportWebRtcDiagnostic("ice-config-fallback", { message: error?.message || "unknown" });
   }
 
-  return { iceServers: state.webRtcIceServers };
+  return {
+    iceServers: state.webRtcIceServers,
+    iceTransportPolicy: state.webRtcIceTransportPolicy
+  };
 }
 
 function resetWebRtcConfigCache() {
   state.webRtcIceServers = [];
+  state.webRtcIceTransportPolicy = "all";
   state.webRtcIceConfigLoaded = false;
   state.webRtcIceConfigRetryAt = 0;
 }
@@ -53,6 +65,10 @@ function normalizeIceServers(servers) {
       credentialType: server.credentialType || server.CredentialType || undefined
     }))
     .filter((server) => Array.isArray(server.urls) ? server.urls.length > 0 : Boolean(server.urls));
+}
+
+function normalizeIceTransportPolicy(policy) {
+  return policy === "relay" ? "relay" : "all";
 }
 
 async function updateWebRtcCandidateMode(peer) {

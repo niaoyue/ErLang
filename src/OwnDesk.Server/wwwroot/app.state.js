@@ -19,6 +19,7 @@ const state = {
   webRtcSessionId: "",
   webRtcControlChannel: null,
   webRtcIceServers: [],
+  webRtcIceTransportPolicy: "all",
   webRtcIceConfigLoaded: false,
   webRtcIceConfigRetryAt: 0,
   webRtcSelectedCandidateTypes: "",

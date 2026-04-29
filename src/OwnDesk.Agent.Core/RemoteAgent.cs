@@ -16,6 +16,7 @@ internal sealed class RemoteAgent
     private readonly InputController _inputController;
     private readonly StreamQualityController _qualityController;
     private readonly RemoteControlHandler _controlHandler;
+    private readonly WebRtcMediaState _webRtcMediaState = new();
 
     public RemoteAgent(
         AgentOptions options,
@@ -39,13 +40,14 @@ internal sealed class RemoteAgent
             return;
         }
 
-        var iceServers = await WebRtcIceConfigClient.FetchAsync(_options, cancellationToken);
+        var webRtcConfig = await WebRtcIceConfigClient.FetchAsync(_options, cancellationToken);
         var webRtcTask = new WebRtcAgentSignalingClient(
             _options,
             _screenCapture,
             _qualityController,
             _controlHandler,
-            iceServers).RunAsync(cancellationToken);
+            _webRtcMediaState,
+            webRtcConfig).RunAsync(cancellationToken);
         await Task.WhenAll(relayTask, webRtcTask);
     }
 
@@ -135,6 +137,12 @@ internal sealed class RemoteAgent
         while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
             var settings = _qualityController.Current;
+            if (_webRtcMediaState.HasActiveVideo)
+            {
+                await Task.Delay(settings.FrameDelay, cancellationToken);
+                continue;
+            }
+
             var frame = _screenCapture.CaptureJpeg(settings.JpegQuality, settings.MaxWidth, settings.MaxHeight);
             _inputController.UpdateFrameSize(frame.Width, frame.Height);
             var header = new BinaryFrameHeader

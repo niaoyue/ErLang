@@ -112,6 +112,13 @@ internal sealed partial class MainForm
                   ...extra
                 };
               };
+              const hasTurnServerCompat = (servers) =>
+                (servers || []).some((server) => {
+                  const urls = Array.isArray(server?.urls) ? server.urls : [server?.urls];
+                  return urls.some((url) => /^turns?:/i.test(String(url || "")));
+                });
+              const normalizeIceTransportPolicyCompat = (policy, servers) =>
+                policy === "relay" && hasTurnServerCompat(servers) ? "relay" : "all";
               const ensureIceServersCompat = async () => {
                 if (window.__ownDeskWebRtcIceLoaded) {
                   return;
@@ -125,9 +132,14 @@ internal sealed partial class MainForm
                     body: JSON.stringify(authPayload())
                   });
                   const config = response.ok ? await response.json() : {};
-                  window.__ownDeskWebRtcIceServers = Array.isArray(config.iceServers) ? config.iceServers : [];
+                  const iceServers = Array.isArray(config.iceServers) ? config.iceServers : [];
+                  window.__ownDeskWebRtcIceServers = iceServers;
+                  window.__ownDeskWebRtcIceTransportPolicy = normalizeIceTransportPolicyCompat(
+                    config.iceTransportPolicy,
+                    iceServers);
                 } catch {
                   window.__ownDeskWebRtcIceServers = [];
+                  window.__ownDeskWebRtcIceTransportPolicy = "all";
                 }
               };
               const installRtcPeerConnectionPatch = () => {
@@ -138,9 +150,13 @@ internal sealed partial class MainForm
                 const NativePeerConnection = window.RTCPeerConnection;
                 const PatchedPeerConnection = function (config = {}, ...rest) {
                   const iceServers = window.__ownDeskWebRtcIceServers || [];
+                  const iceTransportPolicy = window.__ownDeskWebRtcIceTransportPolicy || "all";
                   const nextConfig = { ...config };
                   if ((!nextConfig.iceServers || nextConfig.iceServers.length === 0) && iceServers.length > 0) {
                     nextConfig.iceServers = iceServers;
+                  }
+                  if (!nextConfig.iceTransportPolicy) {
+                    nextConfig.iceTransportPolicy = iceTransportPolicy;
                   }
 
                   return new NativePeerConnection(nextConfig, ...rest);

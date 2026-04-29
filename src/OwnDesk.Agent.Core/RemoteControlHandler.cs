@@ -21,6 +21,11 @@ internal sealed class RemoteControlHandler
         _qualityController = qualityController;
     }
 
+    public void UpdateFrameSize(int width, int height)
+    {
+        _inputController.UpdateFrameSize(width, height);
+    }
+
     public void HandleJson(string text)
     {
         using var document = JsonDocument.Parse(text);

@@ -208,16 +208,18 @@ dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://
 Browser Viewer WebRTC <-> Server 信令中转 <-> Windows Agent WebRTC peer
 ```
 
-控制台连接设备后，点 `◉` 可以发起 WebRTC 视频。这个入口当前使用 SIPSorcery + libvpx 将 Agent 侧桌面采集帧编码为 VP8 MediaStream，再由浏览器 `<video>` 播放。原有二进制 JPEG 画面和输入通道仍保留作为可用 fallback。
+控制台连接设备后会自动尝试发起 WebRTC 视频，`◉` 仍可用于手动关闭或重新打开 WebRTC。这个入口当前使用 SIPSorcery + libvpx 将 Agent 侧桌面采集帧编码为 VP8 MediaStream，再由浏览器 `<video>` 播放。原有二进制 JPEG 画面和输入通道仍保留作为可用 fallback。
 
 当前 WebRTC 状态：
 
 | 项目 | 状态 |
 | --- | --- |
 | SDP/ICE 信令 | 已通过 `/ws/webrtc/viewer` 和 `/ws/webrtc/agent` 中转 |
+| ICE/TURN 配置 | Server 通过 `/api/webrtc/config` 下发给 Viewer 和 Agent，支持 `OWNDESK_WEBRTC_ICE_SERVERS` 与 `OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY` |
 | 浏览器播放 | 已接入 `<video autoplay playsinline>` |
 | Agent 编码 | VP8/libvpx 软件编码桌面帧 |
 | 编码配置 | 支持 `--webrtc-codec` 和 `--webrtc-bitrate-kbps`，H.264/AV1 当前会显式降级到 VP8 |
+| 静止画面 | WebRTC 侧会跳过几乎无变化的重复帧，降低静止桌面的持续带宽 |
 | 屏幕采集接入 | 已抽象采集后端，当前实际后端为 GDI `Graphics.CopyFromScreen` |
 | 采集后端配置 | 支持 `--capture-backend`，DXGI/WGC 当前会显式降级到 GDI |
 | H.264 硬编 | 未接入，需要 Windows Graphics Capture/DXGI + Media Foundation 或 NVENC |
@@ -228,6 +230,15 @@ Browser Viewer WebRTC <-> Server 信令中转 <-> Windows Agent WebRTC peer
 ```powershell
 dotnet run --project src\OwnDesk.Agent\OwnDesk.Agent.csproj -- --server https://YOUR_HTTPS_DOMAIN --account me --token replace-with-a-long-random-token --password replace-with-member-password --webrtc false
 ```
+
+如果需要公网 WebRTC relay，需要先部署 TURN 服务，然后在 Server 上配置 ICE servers：
+
+```powershell
+$env:OWNDESK_WEBRTC_ICE_SERVERS = '[{"urls":["turn:relay.example.com:3478?transport=udp"],"username":"own","credential":"replace-with-turn-password"}]'
+$env:OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY = "all"
+```
+
+`OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY=relay` 会在至少配置了一个 `turn:` / `turns:` server 时强制只使用 TURN relay 候选，适合验证“媒体确实经过 TURN”；如果没有可用 TURN 配置，Server 会降级为 `all`，避免 relay-only + zero relay candidate 直接断流。生产默认建议先用 `all`，让 WebRTC 优先尝试可用直连，再自动回退到 TURN。
 
 ## 连接架构路线
 
@@ -243,7 +254,7 @@ Viewer <-> OwnDesk.Server <-> Agent
 | --- | --- | --- |
 | 1 | 局域网直连 | Server 只负责认证和交换候选地址；Viewer 与 Agent 在局域网内直接传画面和输入 |
 | 2 | 公网 P2P | 使用 WebRTC ICE/STUN 做 NAT 探测和打洞，成功后 Viewer 与 Agent 直连 |
-| 3 | Server Relay | 直连失败时回退到当前中继模式 |
+| 3 | TURN Relay | 直连失败时通过 TURN 中继 WebRTC 媒体；JPEG WebSocket 仍作为最后兜底 |
 
 传输层演进建议：
 

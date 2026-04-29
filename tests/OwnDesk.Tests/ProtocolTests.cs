@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using OwnDesk.Agent;
 using OwnDesk.Server;
 using OwnDesk.Shared;
 using OwnDesk.Shared.Messages;
@@ -315,7 +316,9 @@ public sealed class ProtocolTests
                     Credential = "pass",
                     CredentialType = "password"
                 }
-            ]
+            ],
+            IceTransportPolicy = "relay",
+            RelayConfigured = true
         };
 
         var json = JsonSerializer.Serialize(config, JsonDefaults.Options);
@@ -327,27 +330,168 @@ public sealed class ProtocolTests
         Assert.Equal("user", server.Username);
         Assert.Equal("pass", server.Credential);
         Assert.Equal("password", server.CredentialType);
+        Assert.Equal("relay", parsed.IceTransportPolicy);
+        Assert.True(parsed.RelayConfigured);
     }
 
     [Fact]
     public void WebRtcConfigProviderReadsIceServers()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["OwnDesk:IceServers:0:Urls:0"] = "stun:stun.example.com:3478",
-                ["OwnDesk:IceServers:1:Urls:0"] = "turn:turn.example.com:3478?transport=udp",
-                ["OwnDesk:IceServers:1:Username"] = "turn-user",
-                ["OwnDesk:IceServers:1:Credential"] = "turn-pass"
-            })
-            .Build();
+        var oldServers = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS");
+        var oldPolicy = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY");
 
-        var config = new WebRtcConfigProvider(configuration).GetConfig();
+        try
+        {
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS", null);
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", null);
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OwnDesk:IceServers:0:Urls:0"] = "stun:stun.example.com:3478",
+                    ["OwnDesk:IceServers:1:Urls:0"] = "turn:turn.example.com:3478?transport=udp",
+                    ["OwnDesk:IceServers:1:Username"] = "turn-user",
+                    ["OwnDesk:IceServers:1:Credential"] = "turn-pass",
+                    ["OwnDesk:IceTransportPolicy"] = "relay"
+                })
+                .Build();
 
-        Assert.Equal(2, config.IceServers.Length);
-        Assert.Equal("stun:stun.example.com:3478", Assert.Single(config.IceServers[0].Urls));
-        Assert.Equal("turn-user", config.IceServers[1].Username);
-        Assert.Equal("turn-pass", config.IceServers[1].Credential);
+            var config = new WebRtcConfigProvider(configuration).GetConfig();
+
+            Assert.Equal(2, config.IceServers.Length);
+            Assert.Equal("stun:stun.example.com:3478", Assert.Single(config.IceServers[0].Urls));
+            Assert.Equal("turn-user", config.IceServers[1].Username);
+            Assert.Equal("turn-pass", config.IceServers[1].Credential);
+            Assert.Equal("relay", config.IceTransportPolicy);
+            Assert.True(config.RelayConfigured);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS", oldServers);
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", oldPolicy);
+        }
+    }
+
+    [Fact]
+    public void WebRtcConfigProviderReadsEnvironmentIceServers()
+    {
+        var oldServers = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS");
+        var oldPolicy = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY");
+
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "OWNDESK_WEBRTC_ICE_SERVERS",
+                "stun:stun.example.com:3478|turn:turn.example.com:3478?transport=udp;turn-user;turn-pass");
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", "relay");
+
+            var config = new WebRtcConfigProvider(new ConfigurationBuilder().Build()).GetConfig();
+
+            Assert.Equal(2, config.IceServers.Length);
+            Assert.Equal("stun:stun.example.com:3478", Assert.Single(config.IceServers[0].Urls));
+            Assert.Equal("turn:turn.example.com:3478?transport=udp", Assert.Single(config.IceServers[1].Urls));
+            Assert.Equal("turn-user", config.IceServers[1].Username);
+            Assert.Equal("turn-pass", config.IceServers[1].Credential);
+            Assert.Equal("relay", config.IceTransportPolicy);
+            Assert.True(config.RelayConfigured);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS", oldServers);
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", oldPolicy);
+        }
+    }
+
+    [Fact]
+    public void WebRtcConfigProviderDoesNotForceRelayWithoutTurnServer()
+    {
+        var oldServers = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS");
+        var oldPolicy = Environment.GetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS", null);
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", null);
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["OwnDesk:IceServers:0:Urls:0"] = "stun:stun.example.com:3478",
+                    ["OwnDesk:IceTransportPolicy"] = "relay"
+                })
+                .Build();
+
+            var config = new WebRtcConfigProvider(configuration).GetConfig();
+
+            Assert.Equal("all", config.IceTransportPolicy);
+            Assert.False(config.RelayConfigured);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_SERVERS", oldServers);
+            Environment.SetEnvironmentVariable("OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY", oldPolicy);
+        }
+    }
+
+    [Fact]
+    public void FrameChangeDetectorPublishesSmallSampledChange()
+    {
+        var detector = new FrameChangeDetector();
+        var startedAt = DateTimeOffset.Parse("2026-04-29T00:00:00Z");
+
+        Assert.True(detector.ShouldPublish(CreateRawFrame(32, 18), startedAt));
+        Assert.False(detector.ShouldPublish(CreateRawFrame(32, 18), startedAt.AddMilliseconds(200)));
+        Assert.False(detector.ShouldPublish(CreateRawFrame(32, 18, (0, 0, 9, 9, 9)), startedAt.AddMilliseconds(400)));
+        Assert.True(detector.ShouldPublish(CreateRawFrame(32, 18, (0, 0, 10, 10, 10)), startedAt.AddMilliseconds(600)));
+    }
+
+    [Fact]
+    public void FrameChangeDetectorRefreshesStaticFramePeriodically()
+    {
+        var detector = new FrameChangeDetector();
+        var startedAt = DateTimeOffset.Parse("2026-04-29T00:00:00Z");
+        var frame = CreateRawFrame(32, 18);
+
+        Assert.True(detector.ShouldPublish(frame, startedAt));
+        Assert.False(detector.ShouldPublish(frame, startedAt.AddMilliseconds(2400)));
+        Assert.True(detector.ShouldPublish(frame, startedAt.AddMilliseconds(2500)));
+    }
+
+    [Fact]
+    public void WebRtcMediaStateTracksActiveSessionsWithoutUnderflow()
+    {
+        var state = new WebRtcMediaState();
+
+        Assert.False(state.HasActiveVideo);
+        state.RemoveVideoSession();
+        Assert.False(state.HasActiveVideo);
+
+        state.AddVideoSession();
+        state.AddVideoSession();
+        Assert.True(state.HasActiveVideo);
+
+        state.RemoveVideoSession();
+        Assert.True(state.HasActiveVideo);
+        state.RemoveVideoSession();
+        Assert.False(state.HasActiveVideo);
+        state.RemoveVideoSession();
+        Assert.False(state.HasActiveVideo);
+    }
+
+    private static ScreenRawFrame CreateRawFrame(
+        int width,
+        int height,
+        params (int X, int Y, byte R, byte G, byte B)[] pixels)
+    {
+        var bytes = new byte[width * height * 4];
+        foreach (var pixel in pixels)
+        {
+            var offset = ((pixel.Y * width) + pixel.X) * 4;
+            bytes[offset] = pixel.B;
+            bytes[offset + 1] = pixel.G;
+            bytes[offset + 2] = pixel.R;
+            bytes[offset + 3] = 255;
+        }
+
+        return new ScreenRawFrame(width, height, bytes);
     }
 
     private class TestWebSocket : WebSocket

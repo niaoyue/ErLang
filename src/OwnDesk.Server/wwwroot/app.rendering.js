@@ -94,6 +94,13 @@ function resetBandwidthStats() {
   state.bandwidthBytesPerSecond = 0;
 }
 
+function refreshBandwidthStats() {
+  updateBandwidthRate(performance.now());
+  if (state.frameWidth && state.frameHeight) {
+    updateFrameStats(getCurrentScale());
+  }
+}
+
 function recordBandwidthSample(byteCount) {
   if (!Number.isFinite(byteCount) || byteCount <= 0) {
     return;
@@ -113,8 +120,13 @@ function recordBandwidthSample(byteCount) {
 function updateBandwidthRate(now) {
   const windowMs = 2000;
   state.bandwidthSamples = state.bandwidthSamples.filter((sample) => now - sample.at <= windowMs);
+  if (!state.bandwidthSamples.length) {
+    state.bandwidthBytesPerSecond = 0;
+    return;
+  }
+
   const totalBytes = state.bandwidthSamples.reduce((sum, sample) => sum + sample.bytes, 0);
-  const oldestSampleAt = state.bandwidthSamples[0]?.at ?? now;
+  const oldestSampleAt = state.bandwidthSamples[0].at;
   const spanMs = Math.max(1000, Math.min(windowMs, now - oldestSampleAt));
   state.bandwidthBytesPerSecond = totalBytes * 1000 / spanMs;
 }

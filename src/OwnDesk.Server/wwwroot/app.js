@@ -5,7 +5,7 @@
 
   window.__ownDeskAppLoading = true;
 
-  const version = "20260428-webrtc-ice3";
+  const version = "20260429-bandwidth-decay1";
   const scriptNames = [
     "app.state.js",
     "app.organizations.js",

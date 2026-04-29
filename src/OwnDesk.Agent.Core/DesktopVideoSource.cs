@@ -15,6 +15,8 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
     private readonly object _stateGate = new();
     private readonly object _encoderGate = new();
     private readonly List<VideoFormat> _formats;
+    private readonly FrameChangeDetector _changeDetector = new();
+    private readonly Action<int, int>? _frameSizeChanged;
 
     private VideoFormat _selectedFormat;
     private CancellationTokenSource? _captureStopped;
@@ -24,16 +26,19 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
     private bool _disposed;
     private int _lastEncodedWidth;
     private int _lastEncodedHeight;
+    private DateTimeOffset _lastSampleSentAt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastErrorAt = DateTimeOffset.MinValue;
 
     public DesktopVideoSource(
         ScreenCaptureService screenCapture,
         StreamQualityController qualityController,
-        WebRtcEncodingPlan encodingPlan)
+        WebRtcEncodingPlan encodingPlan,
+        Action<int, int>? frameSizeChanged = null)
     {
         _screenCapture = screenCapture;
         _qualityController = qualityController;
         _encodingPlan = encodingPlan;
+        _frameSizeChanged = frameSizeChanged;
         _currentTargetKbps = _encodingPlan.TargetKbps;
         _encoder = new VpxVideoEncoder
         {
@@ -49,6 +54,7 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
     public event RawVideoSampleDelegate? OnVideoSourceRawSample;
     public event RawVideoSampleFasterDelegate? OnVideoSourceRawSampleFaster;
     public event SourceErrorDelegate? OnVideoSourceError;
+    public event Action? OnVideoSourceInterrupted;
 
     public Task StartVideo()
     {
@@ -63,6 +69,7 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
 
             _captureStopped?.Dispose();
             _captureStopped = new CancellationTokenSource();
+            _lastSampleSentAt = DateTimeOffset.MinValue;
             _captureTask = Task.Run(() => CaptureLoopAsync(_captureStopped.Token));
             return Task.CompletedTask;
         }
@@ -217,16 +224,22 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
                     UpdateEncoderBitrate(settings.WebRtcBitrateKbps);
 
                     var frame = _screenCapture.CaptureBgra(settings.MaxWidth, settings.MaxHeight);
+                    _frameSizeChanged?.Invoke(frame.Width, frame.Height);
                     ForceKeyFrameIfFrameSizeChanged(frame.Width, frame.Height);
-                    PublishEncodedSample(
-                        settings.FrameDurationRtpUnits(RtpVideoClockRate),
-                        frame.Width,
-                        frame.Height,
-                        frame.BgraBytes,
-                        VideoPixelFormatsEnum.Bgra);
+                    var nowUtc = DateTimeOffset.UtcNow;
+                    if (_changeDetector.ShouldPublish(frame, nowUtc))
+                    {
+                        PublishEncodedSample(
+                            GetSampleDurationRtpUnits(settings, nowUtc),
+                            frame.Width,
+                            frame.Height,
+                            frame.BgraBytes,
+                            VideoPixelFormatsEnum.Bgra);
+                    }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
+                    OnVideoSourceInterrupted?.Invoke();
                     ReportError($"WebRTC desktop capture failed: {ex.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
                 }
@@ -239,6 +252,30 @@ internal sealed class DesktopVideoSource : IVideoSource, IDisposable
                 await Task.Delay(remaining, cancellationToken);
             }
         }
+    }
+
+    private uint GetSampleDurationRtpUnits(StreamQualitySettings settings, DateTimeOffset nowUtc)
+    {
+        var defaultDuration = settings.FrameDurationRtpUnits(RtpVideoClockRate);
+        if (_lastSampleSentAt == DateTimeOffset.MinValue)
+        {
+            _lastSampleSentAt = nowUtc;
+            return defaultDuration;
+        }
+
+        var elapsed = nowUtc - _lastSampleSentAt;
+        _lastSampleSentAt = nowUtc;
+        var elapsedUnits = elapsed.TotalSeconds * RtpVideoClockRate;
+        if (!double.IsFinite(elapsedUnits))
+        {
+            return defaultDuration;
+        }
+
+        var clampedUnits = Math.Clamp(
+            (long)Math.Round(elapsedUnits),
+            defaultDuration,
+            RtpVideoClockRate * 5L);
+        return (uint)clampedUnits;
     }
 
     private void PublishEncodedSample(

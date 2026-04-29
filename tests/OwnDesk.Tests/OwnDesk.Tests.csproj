@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\OwnDesk.Agent.Core\OwnDesk.Agent.Core.csproj" />
     <ProjectReference Include="..\..\src\OwnDesk.Shared\OwnDesk.Shared.csproj" />
     <ProjectReference Include="..\..\src\OwnDesk.Server\OwnDesk.Server.csproj" />
   </ItemGroup>
@@ -15,7 +16,8 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

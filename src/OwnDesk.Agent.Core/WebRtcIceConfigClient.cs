@@ -8,7 +8,7 @@ internal static class WebRtcIceConfigClient
 {
     private static readonly HttpClient Http = new();
 
-    public static async Task<WebRtcIceServerDto[]> FetchAsync(
+    public static async Task<WebRtcConfigDto> FetchAsync(
         AgentOptions options,
         CancellationToken cancellationToken)
     {
@@ -33,13 +33,13 @@ internal static class WebRtcIceConfigClient
                     response.StatusCode == System.Net.HttpStatusCode.NotFound
                         ? "WebRTC ICE config endpoint missing on server; using host candidates."
                         : $"WebRTC ICE config skipped: HTTP {(int)response.StatusCode}; using host candidates.");
-                return [];
+                return new WebRtcConfigDto();
             }
 
             var config = await response.Content.ReadFromJsonAsync<WebRtcConfigDto>(JsonDefaults.Options, cancellationToken);
-            var iceServers = config?.IceServers ?? [];
-            Console.WriteLine($"WebRTC ICE config loaded: {iceServers.Length} server(s).");
-            return iceServers;
+            Console.WriteLine(
+                $"WebRTC ICE config loaded: {config?.IceServers.Length ?? 0} server(s), policy={config?.IceTransportPolicy ?? "all"}.");
+            return config ?? new WebRtcConfigDto();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -48,7 +48,7 @@ internal static class WebRtcIceConfigClient
         catch (Exception ex)
         {
             Console.WriteLine($"WebRTC ICE config skipped: {ex.Message}; using host candidates.");
-            return [];
+            return new WebRtcConfigDto();
         }
     }
 

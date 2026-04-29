@@ -65,6 +65,9 @@ Viewer /ws/webrtc/viewer
 | VP8 软件编码桌面采集帧 | 已完成 |
 | 编码偏好和能力上报 | 已完成 |
 | 画质档位 | 已完成，Viewer 可实时切换 |
+| ICE/TURN 配置下发 | 已完成，Server 统一下发给 Viewer 和 Agent |
+| WebRTC 自动尝试 | 已完成，连接设备后自动尝试视频，失败保留 JPEG fallback |
+| 带宽基础优化 | 已完成，WebRTC 活跃时暂停 JPEG fallback，并跳过静止重复帧 |
 | 采集后端抽象 | 已完成，当前实现为 GDI fallback |
 | JPEG fallback | 保留 |
 
@@ -81,7 +84,7 @@ Agent 目前支持这些 WebRTC 参数：
 
 当前实际可发送编码仍是 VP8；如果请求 H.264 或 AV1，Agent 会在能力上报中记录 requested/selected codec 和降级原因，然后使用 VP8 软件编码继续工作。
 当前实际采集后端仍是 GDI；如果请求 DXGI 或 WGC，Agent 会在能力上报中记录 requested/selected capture backend 和降级原因，然后使用 GDI 继续工作。
-Viewer 可通过 `streamQuality` 控制消息实时切换流畅/均衡/清晰/超清档位，Agent 下一帧应用新的 FPS、JPEG 质量、最大分辨率和 VP8 目标码率。
+Viewer 可通过 `streamQuality` 控制消息实时切换流畅/均衡/清晰/超清档位，Agent 下一帧应用新的 FPS、JPEG 质量、最大分辨率和 VP8 目标码率。Viewer 连接设备后会自动尝试 WebRTC；如果信令、ICE 或媒体连接失败，控制和画面会回到 Binary JPEG fallback。WebRTC 视频活跃时 Agent 会暂停 JPEG fallback 画面帧，并跳过几乎无变化的重复 VP8 帧。
 
 Server 增加信令通道：
 
@@ -98,6 +101,15 @@ Server 增加信令通道：
 { "type": "webrtcIce", "sessionId": "...", "candidate": { } }
 { "type": "webrtcCapabilities", "codecs": ["VP8"], "hardwareEncoding": false, "requestedCodec": "AUTO", "selectedCodec": "VP8", "requestedCaptureBackend": "AUTO", "selectedCaptureBackend": "GDI" }
 ```
+
+Server 可配置 ICE/TURN：
+
+```powershell
+$env:OWNDESK_WEBRTC_ICE_SERVERS='[{"urls":["turn:relay.example.com:3478?transport=udp"],"username":"own","credential":"secret"}]'
+$env:OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY="all"
+```
+
+配置会通过 `/api/webrtc/config` 提供给 Browser Viewer 和 Agent。`OWNDESK_WEBRTC_ICE_TRANSPORT_POLICY=relay` 会在至少配置了一个 `turn:` / `turns:` server 时强制只使用 TURN relay 候选；没有 TURN server 时会降级为 `all`，避免 relay-only 配置导致 WebRTC 必然失败。
 
 Viewer 使用浏览器原生 `RTCPeerConnection`：
 

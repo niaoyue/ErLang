@@ -13,9 +13,12 @@ internal sealed class WebRtcPeerSession
     private readonly Func<WebRtcSignalMessage, CancellationToken, Task> _sendSignalAsync;
     private readonly DesktopVideoSource _videoSource;
     private readonly RemoteControlHandler _controlHandler;
+    private readonly WebRtcMediaState _mediaState;
     private readonly RTCPeerConnection _peerConnection;
-    private readonly IReadOnlyList<WebRtcIceServerDto> _iceServers;
+    private readonly WebRtcConfigDto _webRtcConfig;
     private int _videoStarted;
+    private int _mediaStateRegistered;
+    private int _videoInterrupted;
     private int _closed;
 
     public WebRtcPeerSession(
@@ -25,15 +28,17 @@ internal sealed class WebRtcPeerSession
         StreamQualityController qualityController,
         WebRtcEncodingPlan encodingPlan,
         RemoteControlHandler controlHandler,
-        IReadOnlyList<WebRtcIceServerDto> iceServers,
+        WebRtcMediaState mediaState,
+        WebRtcConfigDto webRtcConfig,
         Func<WebRtcSignalMessage, CancellationToken, Task> sendSignalAsync)
     {
         _sessionId = sessionId;
         _deviceId = options.DeviceId;
         _sendSignalAsync = sendSignalAsync;
         _controlHandler = controlHandler;
-        _iceServers = iceServers;
-        _videoSource = new DesktopVideoSource(screenCapture, qualityController, encodingPlan);
+        _mediaState = mediaState;
+        _webRtcConfig = webRtcConfig;
+        _videoSource = new DesktopVideoSource(screenCapture, qualityController, encodingPlan, controlHandler.UpdateFrameSize);
         _peerConnection = CreatePeerConnection();
     }
 
@@ -101,6 +106,7 @@ internal sealed class WebRtcPeerSession
         }
 
         await StopVideoSourceAsync();
+        ReleaseMediaState();
         _videoSource.Dispose();
         _peerConnection.Dispose();
     }
@@ -111,8 +117,19 @@ internal sealed class WebRtcPeerSession
         var videoTrack = new MediaStreamTrack(_videoSource.GetVideoSourceFormats(), MediaStreamStatusEnum.SendOnly);
         peerConnection.addTrack(videoTrack);
 
-        _videoSource.OnVideoSourceEncodedSample += peerConnection.SendVideo;
-        _videoSource.OnVideoSourceError += message => Console.WriteLine(message);
+        _videoSource.OnVideoSourceEncodedSample += (duration, sample) =>
+        {
+            RegisterMediaState();
+            peerConnection.SendVideo(duration, sample);
+        };
+        _videoSource.OnVideoSourceError += message =>
+        {
+            Console.WriteLine(message);
+        };
+        _videoSource.OnVideoSourceInterrupted += () =>
+        {
+            _ = Task.Run(HandleVideoSourceInterruptedAsync);
+        };
         peerConnection.OnVideoFormatsNegotiated += formats =>
         {
             if (formats.Count > 0)
@@ -165,18 +182,38 @@ internal sealed class WebRtcPeerSession
     {
         return new RTCConfiguration
         {
-            iceServers = _iceServers
-                .Where(server => server.Urls.Length > 0)
-                .Select(server => new RTCIceServer
-                {
-                    urls = string.Join(",", server.Urls),
-                    username = server.Username,
-                    credential = server.Credential
-                })
+            iceServers = _webRtcConfig.IceServers
+                .SelectMany(ToRtcIceServers)
                 .ToList(),
+            iceTransportPolicy = ParseIceTransportPolicy(_webRtcConfig.IceTransportPolicy),
             X_ICEIncludeAllInterfaceAddresses = true,
             X_GatherTimeoutMs = 5000
         };
+    }
+
+    private static IEnumerable<RTCIceServer> ToRtcIceServers(WebRtcIceServerDto server)
+    {
+        foreach (var url in server.Urls)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                continue;
+            }
+
+            yield return new RTCIceServer
+            {
+                urls = url.Trim(),
+                username = server.Username ?? string.Empty,
+                credential = server.Credential ?? string.Empty
+            };
+        }
+    }
+
+    private static RTCIceTransportPolicy ParseIceTransportPolicy(string? policy)
+    {
+        return policy?.Equals("relay", StringComparison.OrdinalIgnoreCase) == true
+            ? RTCIceTransportPolicy.relay
+            : RTCIceTransportPolicy.all;
     }
 
     private async Task SendIceCandidateAsync(RTCIceCandidate candidate)
@@ -212,12 +249,17 @@ internal sealed class WebRtcPeerSession
                     await StartVideoSourceAsync();
                     break;
                 case RTCPeerConnectionState.failed:
+                    await StopVideoSourceAsync();
+                    ReleaseMediaState();
                     _peerConnection.Close("ice failed");
                     break;
                 case RTCPeerConnectionState.disconnected:
+                    await StopVideoSourceAsync();
+                    ReleaseMediaState();
                     break;
                 case RTCPeerConnectionState.closed:
                     await StopVideoSourceAsync();
+                    ReleaseMediaState();
                     break;
             }
         }
@@ -257,6 +299,54 @@ internal sealed class WebRtcPeerSession
         finally
         {
             Interlocked.Exchange(ref _videoStarted, 0);
+        }
+    }
+
+    private void RegisterMediaState()
+    {
+        if (Interlocked.Exchange(ref _mediaStateRegistered, 1) == 0)
+        {
+            _mediaState.AddVideoSession();
+        }
+    }
+
+    private bool ReleaseMediaState()
+    {
+        if (Interlocked.Exchange(ref _mediaStateRegistered, 0) == 1)
+        {
+            _mediaState.RemoveVideoSession();
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task HandleVideoSourceInterruptedAsync()
+    {
+        ReleaseMediaState();
+        if (Interlocked.Exchange(ref _videoInterrupted, 1) == 1 ||
+            Volatile.Read(ref _closed) == 1)
+        {
+            return;
+        }
+
+        await StopVideoSourceAsync();
+        await _sendSignalAsync(
+            new WebRtcSignalMessage
+            {
+                Type = OwnDeskMessageTypes.WebRtcError,
+                SessionId = _sessionId,
+                DeviceId = _deviceId,
+                Message = "WebRTC video source interrupted; using JPEG fallback."
+            },
+            CancellationToken.None);
+
+        try
+        {
+            _peerConnection.Close("video source interrupted");
+        }
+        catch (Exception)
+        {
         }
     }
 

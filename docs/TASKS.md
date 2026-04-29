@@ -69,6 +69,9 @@
 - [x] H8. 将 VP8 测试图案替换为屏幕采集帧源
 - [x] H8.1. 增加 WebRTC 编码偏好、码率参数和能力上报
 - [x] H8.2. 增加画质档位和 Viewer 实时切换
+- [x] H8.3. Server 下发 ICE/TURN 配置，Viewer/Agent 使用同一份 WebRTC relay 配置
+- [x] H8.4. Viewer 连接设备后自动尝试 WebRTC 视频，保留 JPEG fallback
+- [x] H8.5. WebRTC 连接成功后暂停 JPEG fallback 画面帧，WebRTC 侧跳过静止重复帧
 - [x] H9.1. 抽象屏幕采集后端并保留 GDI 实现
 - [x] H9.2. 增加采集后端配置和 DXGI/WGC 显式降级上报
 - [x] H9.2.1. 移动端全屏工具栏改为悬浮按钮显示/隐藏
@@ -85,6 +88,8 @@
 - [x] Agent 注册：Server 看到 `RelayTest` 设备，分辨率 1920×1080
 - [x] 画面中继：临时 Viewer 收到 `device` 消息和 `frame` 消息
 - [x] WebRTC MediaStream：已接入 VP8 桌面采集帧，浏览器 `<video>` 可播放
+- [x] WebRTC ICE/TURN：Server 支持 `/api/webrtc/config` 和 `OWNDESK_WEBRTC_ICE_SERVERS`，Viewer/Agent 会应用 `iceTransportPolicy`
+- [x] WebRTC 带宽：WebRTC 视频活跃时 Agent 暂停 JPEG fallback，静止画面不再按 FPS 重复编码发送
 - [x] WebRTC 能力上报：Server 日志记录 requested/selected codec、capture backend、encoder、target kbps 和降级原因
 - [x] 采集后端上报：Server 日志记录 requested/selected capture backend，DXGI/WGC 请求会降级到 GDI
 - [x] 画质档位：Viewer 可切换流畅/均衡/清晰/超清，Agent 下一帧应用新的 FPS、JPEG 质量、最大分辨率和 WebRTC 码率

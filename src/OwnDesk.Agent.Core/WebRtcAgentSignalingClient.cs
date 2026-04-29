@@ -16,8 +16,9 @@ internal sealed class WebRtcAgentSignalingClient
     private readonly ScreenCaptureService _screenCapture;
     private readonly StreamQualityController _qualityController;
     private readonly RemoteControlHandler _controlHandler;
+    private readonly WebRtcMediaState _mediaState;
     private readonly WebRtcEncodingPlan _encodingPlan;
-    private readonly IReadOnlyList<WebRtcIceServerDto> _iceServers;
+    private readonly WebRtcConfigDto _webRtcConfig;
     private readonly ConcurrentDictionary<string, WebRtcPeerSession> _sessions = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private ClientWebSocket? _socket;
@@ -27,14 +28,16 @@ internal sealed class WebRtcAgentSignalingClient
         ScreenCaptureService screenCapture,
         StreamQualityController qualityController,
         RemoteControlHandler controlHandler,
-        IReadOnlyList<WebRtcIceServerDto> iceServers)
+        WebRtcMediaState mediaState,
+        WebRtcConfigDto webRtcConfig)
     {
         _options = options;
         _screenCapture = screenCapture;
         _qualityController = qualityController;
         _controlHandler = controlHandler;
+        _mediaState = mediaState;
         _encodingPlan = WebRtcEncodingPlan.Create(options, screenCapture.BackendPlan, _qualityController.Current);
-        _iceServers = iceServers;
+        _webRtcConfig = webRtcConfig;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken)
@@ -179,7 +182,8 @@ internal sealed class WebRtcAgentSignalingClient
             _qualityController,
             _encodingPlan,
             _controlHandler,
-            _iceServers,
+            _mediaState,
+            _webRtcConfig,
             SendSignalSafeAsync);
         _sessions[signal.SessionId] = session;
 

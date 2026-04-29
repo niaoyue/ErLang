@@ -68,7 +68,10 @@ async function startWebRtc() {
   elements.webrtcButton.title = "关闭 WebRTC 视频";
   elements.connectionStatus.textContent = "WebRTC 连接中";
   elements.connectionStatus.classList.remove("offline");
-  reportWebRtcDiagnostic("start", { iceServers: config.iceServers.length });
+  reportWebRtcDiagnostic("start", {
+    iceServers: config.iceServers.length,
+    iceTransportPolicy: config.iceTransportPolicy
+  });
 
   peer.addTransceiver("video", { direction: "recvonly" });
   peer.ontrack = (event) => {
@@ -104,8 +107,7 @@ async function startWebRtc() {
       elements.connectionStatus.textContent = "WebRTC 已连接";
       elements.connectionStatus.classList.remove("offline");
     } else if (peer.connectionState === "disconnected") {
-      elements.connectionStatus.textContent = "WebRTC 重连中";
-      elements.connectionStatus.classList.remove("offline");
+      stopWebRtc(true);
     } else if (peer.connectionState === "failed" || peer.connectionState === "closed") {
       stopWebRtc(true);
     }
@@ -187,7 +189,12 @@ function activateWebRtcVideo() {
     return;
   }
 
+  const switchedToWebRtc = state.mediaMode !== "webrtc";
   state.mediaMode = "webrtc";
+  if (switchedToWebRtc) {
+    resetBandwidthStats();
+  }
+
   scheduleWebRtcCandidateModeRefresh(state.webRtcPeer);
   elements.webrtcVideo.classList.add("visible");
   elements.canvas.classList.add("visible");
@@ -276,7 +283,14 @@ async function updateWebRtcBandwidth() {
   });
 
   if (state.webRtcLastBytesReceived > 0 && bytesReceived >= state.webRtcLastBytesReceived) {
-    recordBandwidthSample(bytesReceived - state.webRtcLastBytesReceived);
+    const byteDelta = bytesReceived - state.webRtcLastBytesReceived;
+    if (byteDelta > 0) {
+      recordBandwidthSample(byteDelta);
+    } else {
+      refreshBandwidthStats();
+    }
+  } else {
+    refreshBandwidthStats();
   }
 
   state.webRtcLastBytesReceived = bytesReceived;

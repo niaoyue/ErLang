@@ -21,7 +21,7 @@ internal sealed partial class MainForm
         }
 
         var server = organization.Server.TrimEnd('/');
-        if (!Uri.TryCreate($"{server}/index.html?embedded=client&shell=20260428-webrtc-ice3", UriKind.Absolute, out var uri))
+        if (!Uri.TryCreate($"{server}/index.html?embedded=client&shell=20260429-bandwidth-decay1", UriKind.Absolute, out var uri))
         {
             _viewerStatus.Text = "控制台：服务器地址无效";
             return;
@@ -64,11 +64,11 @@ internal sealed partial class MainForm
         }
     }
 
-    private async Task ShowViewerErrorAsync(string message)
+    private Task ShowViewerErrorAsync(string message)
     {
         if (_webView.CoreWebView2 is null)
         {
-            return;
+            return Task.CompletedTask;
         }
 
         var safeMessage = System.Net.WebUtility.HtmlEncode(message);
@@ -96,6 +96,7 @@ internal sealed partial class MainForm
             </style>
             <div class="message">{{safeMessage}}</div>
             """);
+        return Task.CompletedTask;
     }
 
     private async Task VerifyEmbeddedViewerReadyAsync()
