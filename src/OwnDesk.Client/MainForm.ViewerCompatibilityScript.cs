@@ -96,7 +96,7 @@ internal sealed partial class MainForm
               };
               const mergeHistory = (devices) => {
                 const map = new Map(loadHistory().map((device) => {
-                  const normalized = normalize(device, false);
+                  const normalized = normalize({ ...device, online: false, Online: false }, false);
                   return [normalized.deviceId, normalized];
                 }));
                 for (const item of devices || []) {
@@ -109,7 +109,7 @@ internal sealed partial class MainForm
                 const merged = [...map.values()].sort((left, right) =>
                   Number(right.online) - Number(left.online) ||
                   left.deviceName.localeCompare(right.deviceName));
-                saveHistory(merged.map((device) => ({ ...device, online: isLocalRunningDevice(device) })));
+                saveHistory(merged.map((device) => ({ ...device, online: false })));
                 return merged;
               };
               const readAuth = () => {
